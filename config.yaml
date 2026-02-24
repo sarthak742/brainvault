@@ -1,0 +1,42 @@
+# RAG Second Brain Configuration
+# All paths are relative to the project root
+
+# Data directories
+data_dir: "data"
+vectorstore_dir: "vectorstore_data"
+
+# Index filenames
+index_filename: "index.faiss"
+metadata_filename: "metadata.json"
+
+# Chunking settings
+chunk_size: 1000
+chunk_overlap: 200
+
+# Retrieval settings
+default_k: 5
+score_threshold: 0.25
+
+# Hybrid retrieval settings (alpha: weight for dense, 1-alpha: weight for sparse)
+hybrid_alpha: 0.5
+
+# Embedding settings
+embedding_model: "all-MiniLM-L6-v2"
+embedding_batch_size: 32
+
+# LLM settings
+llm_model: "deepseek/deepseek-r1"
+llm_temperature: 0.0
+llm_timeout: 120
+
+# OCR settings (for scanned PDFs)
+ocr_enabled: true
+ocr_dpi: 200
+
+# Sarvam Vision OCR settings (for handwritten/scanned PDFs)
+sarvam_ocr_enabled: true
+sarvam_language: "en-IN"
+
+# Evaluation settings
+eval_questions_file: "evaluation/eval_questions.json"
+eval_results_file: "evaluation/results.json"

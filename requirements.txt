@@ -1,0 +1,20 @@
+# RAG Second Brain - Python Dependencies
+
+# Core dependencies
+pypdf>=3.0.0
+faiss-cpu>=1.7.0
+sentence-transformers>=2.2.0
+rank-bm25>=0.2.0
+numpy>=1.21.0
+PyYAML>=6.0
+
+# LLM API
+requests>=2.28.0
+
+# Testing
+pytest>=7.0.0
+
+# OCR Support (optional - requires tesseract OCR engine installed separately)
+pytesseract>=0.3.10
+pdf2image>=1.16.0
+Pillow>=9.0.0

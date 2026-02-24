@@ -1,0 +1,8 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+vectorstore_data/
+data/raw_docs/
+*.faiss
+*.json
