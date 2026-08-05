@@ -40,3 +40,23 @@ sarvam_language: "en-IN"
 # Evaluation settings
 eval_questions_file: "evaluation/eval_questions.json"
 eval_results_file: "evaluation/results.json"
+
+# --- Self-Reflection settings (CRAG + answer critique) ---
+# Master switch. When false, the pipeline behaves exactly as the original
+# retrieve -> generate -> validate flow (no extra LLM calls).
+reflection_enabled: true
+
+# Grade retrieved chunks for relevance before generating (Corrective RAG).
+reflection_grade_retrieval: true
+
+# Rewrite the query and retrieve again if the first grade is insufficient.
+reflection_rewrite_query: true
+
+# Run an answer faithfulness critique after generating.
+reflection_critique_answer: true
+
+# Total retrieval tries including the first (2 = one original + one rewrite).
+reflection_max_retrieval_attempts: 2
+
+# Regenerate once if the critic judges the first answer unsupported.
+reflection_allow_regeneration: true

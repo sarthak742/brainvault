@@ -40,6 +40,7 @@ from retrieval.retriever import Retriever
 from retrieval.bm25_retrieval import BM25Retriever
 from llm.client import OpenRouterClient
 from llm.answer_engine import AnswerEngine
+from reflection.builder import build_answer_engine
 
 # --- Configuration ---
 logging.basicConfig(
@@ -174,7 +175,7 @@ def rebuild_index_background():
         bm25_retriever = BM25Retriever(chunks_for_bm25) if chunks_for_bm25 else None
         retriever = Retriever(embedder, store, sparse_retriever=bm25_retriever)
         client = OpenRouterClient()
-        engine = AnswerEngine(retriever, client)
+        engine = build_answer_engine(retriever, client)
 
         with components_lock:
             rag_components["retriever"] = retriever
@@ -204,7 +205,7 @@ def init_rag_components():
         bm25_retriever = BM25Retriever(chunks) if chunks else None
         retriever = Retriever(embedder, store, sparse_retriever=bm25_retriever)
         client = OpenRouterClient()
-        engine = AnswerEngine(retriever, client)
+        engine = build_answer_engine(retriever, client)
 
         with components_lock:
             rag_components["retriever"] = retriever

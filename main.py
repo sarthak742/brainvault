@@ -11,6 +11,7 @@ from retrieval.retriever import Retriever
 from retrieval.bm25_retrieval import BM25Retriever
 from llm.client import OpenRouterClient
 from llm.answer_engine import AnswerEngine
+from reflection.builder import build_answer_engine
 from config import get_vectorstore_dir, get_project_root
 
 # --- Configuration ---
@@ -82,7 +83,7 @@ def main():
         # Connect Organs - Pass BM25 as sparse retriever for hybrid retrieval
         retriever = Retriever(embedder, store, sparse_retriever=bm25_retriever)
         client = OpenRouterClient() # Uses env var
-        engine = AnswerEngine(retriever, client)
+        engine = build_answer_engine(retriever, client)
         
     except Exception as e:
         logger.exception(f"❌ Critical Startup Error: {e}")

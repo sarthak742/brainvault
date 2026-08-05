@@ -174,3 +174,34 @@ def is_sarvam_enabled() -> bool:
 def get_sarvam_language() -> str:
     """Get the Sarvam OCR language setting."""
     return get('sarvam_language', 'en-IN')
+
+
+# --- Self-Reflection settings ---
+def is_reflection_enabled() -> bool:
+    """Master switch for the self-reflective RAG layer."""
+    return bool(get('reflection_enabled', False))
+
+
+def is_reflection_grade_retrieval() -> bool:
+    """Whether to grade retrieved chunks for relevance before generating."""
+    return bool(get('reflection_grade_retrieval', True))
+
+
+def is_reflection_rewrite_query() -> bool:
+    """Whether to rewrite + retry retrieval when grading is insufficient."""
+    return bool(get('reflection_rewrite_query', True))
+
+
+def is_reflection_critique_answer() -> bool:
+    """Whether to run an answer faithfulness critique after generating."""
+    return bool(get('reflection_critique_answer', True))
+
+
+def get_reflection_max_retrieval_attempts() -> int:
+    """Total retrieval attempts including the first."""
+    return int(get('reflection_max_retrieval_attempts', 2))
+
+
+def is_reflection_allow_regeneration() -> bool:
+    """Whether to regenerate once when the critic flags an unsupported answer."""
+    return bool(get('reflection_allow_regeneration', True))
