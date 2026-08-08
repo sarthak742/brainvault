@@ -105,3 +105,47 @@ breaking the user's request. Each answer carries a `reflection` audit trail
 **Cost/latency tradeoff:** with everything on, a hard question can cost up to
 ~6 LLM calls (grade → rewrite → grade → generate → critique → regenerate).
 Each stage is individually toggleable so you can dial reliability against cost.
+
+## 📊 Evaluation Harness (measuring retrieval + A/B testing reflection)
+
+"Measuring retrieval" is what separates a RAG demo from a RAG product. This
+harness scores retrieval and answer quality separately, and A/B-tests the
+reflection layer so its impact is a number, not a vibe.
+
+**Pure retrieval metrics** (`evaluation/metrics.py`) — dependency-free,
+unit-tested functions over a ranked list of retrieved doc ids vs the relevant
+set: `recall@k`, `hit@k`, `precision@k`, and `MRR` (mean reciprocal rank).
+These isolate "did retrieval find the right documents?" from generation.
+
+**The harness** (`evaluation/harness.py`):
+- `evaluate_retrieval(retriever, questions, k)` — retrieval metrics only (no
+  LLM calls, cheap and deterministic).
+- `evaluate_answers(engine, questions)` — classifies each answer as TP / FP /
+  TN / FN against `expect_grounded`, yielding grounding accuracy, answer
+  recall, refusal accuracy, hallucination rate, and keyword accuracy.
+- `compare_engines({name: engine}, questions)` — runs several engine configs
+  and reports per-metric deltas vs the first (baseline).
+
+**A/B runner** (`evaluation/compare_reflection.py`) — builds a baseline engine
+(hybrid retrieval, no reflection) and a reflection engine over the same index,
+runs both on your eval set, and prints a side-by-side table plus deltas:
+
+```bash
+python -m evaluation.compare_reflection evaluation/eval_questions.json
+```
+
+Example output shape:
+
+```
+=== ANSWER QUALITY: baseline vs reflection ===
+metric                baseline      reflection
+------------------------------------------------
+grounding_accuracy    0.78          0.91
+refusal_accuracy      0.60          0.90
+hallucination_rate    0.20          0.05
+```
+
+Author an eval set in the schema shown in `evaluation/eval_questions.sample.json`
+(`id`, `question`, `expect_grounded`, `relevant_doc_ids`, `expected_keywords`).
+The metrics and harness are fully unit-tested offline (no index or API key
+needed); only the A/B runner needs a built index + `OPENROUTER_API_KEY`.
