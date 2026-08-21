@@ -161,19 +161,19 @@ def is_sarvam_ocr_enabled() -> bool:
     return get('sarvam_ocr_enabled', False) and bool(get_sarvam_api_key())
 
 
-def get_sarvam_api_key() -> str:
-    """Get the Sarvam API key from environment."""
-    return os.getenv('SARVAM_API_KEY', '')
-
-
-def is_sarvam_enabled() -> bool:
-    """Check if Sarvam OCR is enabled in config and API key is available."""
-    return get('sarvam_ocr_enabled', False) and bool(get_sarvam_api_key())
-
-
 def get_sarvam_language() -> str:
     """Get the Sarvam OCR language setting."""
     return get('sarvam_language', 'en-IN')
+
+
+def get_embedding_model() -> str:
+    """Embedding model name. Single source of truth for the Embedder."""
+    return get('embedding_model', 'all-MiniLM-L6-v2')
+
+
+def get_embedding_batch_size() -> int:
+    """Embedding batch size. Single source of truth for the Embedder."""
+    return int(get('embedding_batch_size', 32))
 
 
 # --- Self-Reflection settings ---
