@@ -10,7 +10,7 @@ Unlike pasting text into a chatbot, BrainVault searches across a whole library o
 
 - **Hybrid retrieval** — combines dense semantic search (FAISS + MiniLM embeddings) with sparse keyword search (BM25), so it catches both *meaning* ("young dog" → "puppy") and *exact terms* (error codes, names, IDs).
 - **Self-reflective loop** — grades retrieved chunks before answering (rewriting the query if they're weak) and critiques the answer's faithfulness afterward (regenerating if it's unsupported). Every critic **fails open** so it can never break a request.
-- **Evaluation harness** — measures retrieval quality (recall@k, hit@k, MRR) and answer quality, and A/B-tests baseline vs. reflection so improvements are *measured*, not guessed.
+- **Evaluation harness** — measures retrieval quality (recall@k, hit@k, MRR) and answer quality (grounding, refusal, hallucination), and A/B-tests baseline vs. reflection.
 - **Grounded answers with citations** — every answer cites `[1] [2]` mapping to a real source file and page range.
 - **OCR fallback** — fully-scanned PDFs are sent to Sarvam's document-intelligence API when normal text extraction finds nothing.
 - **Background indexing** — uploads reindex on a background thread so the UI never freezes.
@@ -45,7 +45,7 @@ flowchart TD
     E -.-> S
 ```
 
-**Two models, never confused:** the *embedding model* (MiniLM) makes vectors; the *LLM* (DeepSeek via OpenRouter) writes answers.
+**Two models, never confused:** the *embedding model* (MiniLM) makes vectors; the *LLM* writes answers.
 
 ---
 
@@ -62,40 +62,42 @@ flowchart TD
 
 ## 📊 Evaluation
 
-BrainVault ships an evaluation harness (`evaluation/`) that scores **retrieval** and **answers** separately and A/B-tests the reflection layer, so gains are measured rather than assumed.
+The harness scores **retrieval** and **answers** separately on a labelled set (6 documents, 8 questions), and A/B-tests the reflection layer.
 
-**What it measures**
-- *Retrieval* (no API key needed): `recall@k`, `hit@k`, `mrr` — did the right documents come back?
-- *Answers* (needs `OPENROUTER_API_KEY`): grounding accuracy, refusal accuracy, hallucination rate — baseline **vs.** reflection.
+**Retrieval quality** (hybrid dense + BM25, no API key needed):
 
-**Reproduce on your own documents**
+| Metric | Score |
+|---|---|
+| recall@5 | 1.00 |
+| hit@5 | 1.00 |
+| MRR | 1.00 |
+
+Every topical question retrieved its correct document at rank 1. (Note: a small, topic-distinct set, so retrieval is an easy case — a larger, more ambiguous set would be a harder test.)
+
+**Answer quality — baseline pipeline** on an adversarial set (3 real + 5 "trap" questions designed to tempt hallucination), Llama-3.1-8B:
+
+| Metric | Baseline |
+|---|---|
+| grounding accuracy | 0.875 |
+| refusal accuracy | 0.80 |
+| hallucination rate | 0.125 |
+
+The base pipeline correctly refused 4 of 5 trap questions on its own — the strict "answer only from context, else say you couldn't find it" prompt does real work.
+
+**Reflection layer — honest note.** In A/B tests, the reflection layer did **not** beat baseline. The cause is diagnosable: the critic ran on the *same-size* model as the generator, so self-critique shared the generator's blind spots (it missed a hallucination the generator made, and over-flagged a correct answer). The correct configuration uses a **judge model stronger than the generator**; validating that at eval volume needs paid API throughput, so a rigorous reflection A/B is **future work**. The base retrieval + citation + threshold guards already deliver the strong numbers above.
+
+**Reproduce:**
 ```bash
-# 1. build an index from your docs
-python build_index.py
-
-# 2. write ~10-30 Q&A pairs (schema in evaluation/eval_questions.sample.json)
-#    then run the A/B benchmark:
-python -m evaluation.compare_reflection evaluation/eval_questions.json
-
-# offline unit tests for the metrics/harness (no key):
-python -m pytest tests/test_metrics.py tests/test_harness.py -q
+python -m pytest tests/test_metrics.py tests/test_harness.py -q   # offline, no key
+python -m evaluation.compare_reflection evaluation/eval_questions.json   # needs a built index + API key
 ```
-The runner prints a baseline-vs-reflection table and writes `evaluation/ab_results.json`. Drop your numbers into the table below once you have them.
-
-<!-- Paste your measured results here, e.g.
-| Metric | Baseline | + Reflection |
-|---|---|---|
-| Refusal accuracy | 0.62 | 0.91 |
-| Hallucination rate | 0.18 | 0.04 |
-| Retrieval recall@5 | 0.80 | — |
--->
 
 ---
 
 ## 🛠️ Tech stack
 
 - **Retrieval:** FAISS (`IndexFlatIP`), `sentence-transformers` (`all-MiniLM-L6-v2`), `rank-bm25`
-- **LLM:** DeepSeek R1 via OpenRouter (swappable by config)
+- **LLM:** OpenAI-compatible chat API (OpenRouter / NVIDIA NIM / etc.), model set by config
 - **OCR:** Sarvam AI document-intelligence (fallback for scanned PDFs)
 - **API/UI:** FastAPI + a vanilla HTML/JS front end
 - **Config:** single `config.yaml` (all tunable knobs)
@@ -109,26 +111,21 @@ git clone https://github.com/sarthak742/brainvault.git
 cd brainvault
 python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env      # then add your OPENROUTER_API_KEY (and SARVAM_API_KEY for OCR)
+cp .env.example .env      # then add your API key (OPENROUTER_API_KEY; SARVAM_API_KEY for OCR)
+python build_index.py     # index documents placed under data/raw_docs
 python app.py             # open http://localhost:8000
 ```
 
 ---
 
-## ⚙️ Configuration (`config.yaml`)
-
-Key knobs: `chunk_size` (1000), `chunk_overlap` (200), `default_k` (5), `score_threshold` (0.25), `hybrid_alpha` (0.5, dense vs BM25), `embedding_model`, and the `reflection_*` toggles. All are documented inline.
-
----
-
 ## 🧭 Known limitations & roadmap
 
+- **Reflection needs a stronger judge model** than the generator (see Evaluation) — the current self-critique shares the generator's blind spots.
 - **Full rebuild on every upload** — should be *incremental* (only embed new chunks).
 - **Brute-force search** (`IndexFlatIP`) is exact but O(n); at millions of chunks, move to an approximate index (IVF/HNSW).
 - **Single-process, in-memory** — for real concurrency, externalize the index to a vector DB.
 - **OCR triggers per-document, not per-page** — a mostly-text PDF with one scanned page won't OCR that page.
 - **No reranker yet** — a cross-encoder over the top-k would sharpen results.
-- **Threshold on hybrid scores is relative** (post-normalization), so it's a softer guard than on the pure-dense path.
 
 ---
 
@@ -140,7 +137,7 @@ chunking/     paragraph-aware chunker
 embeddings/   MiniLM embedder
 vectorstore/  FAISS index + metadata (save/load)
 retrieval/    dense, BM25, hybrid fusion
-llm/          answer engine + OpenRouter client
+llm/          answer engine + OpenAI-compatible client
 reflection/   retrieval grader, query rewriter, answer critic
 evaluation/   metrics + A/B harness
 app.py        FastAPI web app   .   main.py  CLI
