@@ -9,3 +9,6 @@ data/raw_docs/
 .env.txt
 .env.*
 !.env.example
+.env.txt
+.env.*
+!.env.example

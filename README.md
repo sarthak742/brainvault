@@ -22,7 +22,7 @@ Unlike pasting text into a chatbot, BrainVault searches across a whole library o
 ```mermaid
 flowchart TD
     subgraph BUILD["Build time (on upload)"]
-        A[Files: PDF / TXT / MD] --> B[Ingest → source, page, text]
+        A[Files: PDF / TXT / MD] --> B[Ingest to source, page, text]
         B --> C[Chunk ~1000 chars, 200 overlap]
         C --> D[Embed - MiniLM, 384-dim]
         D --> E[(FAISS index + metadata.json)]
@@ -30,7 +30,7 @@ flowchart TD
 
     subgraph QUERY["Query time (every question)"]
         Q[User question] --> R[Embed query - same model]
-        R --> S[Hybrid retrieve: dense + BM25 → normalize → fuse]
+        R --> S[Hybrid retrieve: dense + BM25, normalize, fuse]
         S --> G{Grade chunks relevant?}
         G -- no --> RW[Rewrite query + retry] --> S
         G -- yes --> T{Pass 0.25 threshold?}
@@ -62,26 +62,33 @@ flowchart TD
 
 ## 📊 Evaluation
 
-Retrieval and answer quality are scored separately, and the reflection layer is A/B-tested against a baseline:
+BrainVault ships an evaluation harness (`evaluation/`) that scores **retrieval** and **answers** separately and A/B-tests the reflection layer, so gains are measured rather than assumed.
 
+**What it measures**
+- *Retrieval* (no API key needed): `recall@k`, `hit@k`, `mrr` — did the right documents come back?
+- *Answers* (needs `OPENROUTER_API_KEY`): grounding accuracy, refusal accuracy, hallucination rate — baseline **vs.** reflection.
+
+**Reproduce on your own documents**
 ```bash
-# offline unit tests (no API key needed)
-python -m pytest tests/test_metrics.py tests/test_harness.py -q
+# 1. build an index from your docs
+python build_index.py
 
-# full A/B benchmark (needs a built index + OPENROUTER_API_KEY)
+# 2. write ~10-30 Q&A pairs (schema in evaluation/eval_questions.sample.json)
+#    then run the A/B benchmark:
 python -m evaluation.compare_reflection evaluation/eval_questions.json
+
+# offline unit tests for the metrics/harness (no key):
+python -m pytest tests/test_metrics.py tests/test_harness.py -q
 ```
+The runner prints a baseline-vs-reflection table and writes `evaluation/ab_results.json`. Drop your numbers into the table below once you have them.
 
-**Results on my eval set** *(replace with your real numbers after running the harness):*
-
+<!-- Paste your measured results here, e.g.
 | Metric | Baseline | + Reflection |
 |---|---|---|
-| Grounding accuracy | _tbd_ | _tbd_ |
-| Refusal accuracy | _tbd_ | _tbd_ |
-| Hallucination rate | _tbd_ | _tbd_ |
-| Retrieval recall@5 | _tbd_ | — |
-
-Author eval questions in the schema shown in `evaluation/eval_questions.sample.json`.
+| Refusal accuracy | 0.62 | 0.91 |
+| Hallucination rate | 0.18 | 0.04 |
+| Retrieval recall@5 | 0.80 | — |
+-->
 
 ---
 
@@ -128,7 +135,7 @@ Key knobs: `chunk_size` (1000), `chunk_overlap` (200), `default_k` (5), `score_t
 ## 📁 Project structure
 
 ```
-ingestion/    read files + OCR fallback → PageRecords
+ingestion/    read files + OCR fallback to PageRecords
 chunking/     paragraph-aware chunker
 embeddings/   MiniLM embedder
 vectorstore/  FAISS index + metadata (save/load)
@@ -136,5 +143,5 @@ retrieval/    dense, BM25, hybrid fusion
 llm/          answer engine + OpenRouter client
 reflection/   retrieval grader, query rewriter, answer critic
 evaluation/   metrics + A/B harness
-app.py        FastAPI web app   ·   main.py  CLI
+app.py        FastAPI web app   .   main.py  CLI
 ```
