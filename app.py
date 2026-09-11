@@ -1,48 +1,39 @@
 """
-FastAPI Web Application for RAG Second Brain
-Provides REST API for document upload, management, and chat interface.
+FastAPI Web Application for RAG Second Brain — full upgrade.
+
+Layered on top of Phase 1 (incremental indexing), this adds:
+  - Phase 2  ASYNC QUEUE     : uploads are indexed by a separate Celery+Redis
+                               worker, not a thread in this process.
+  - OBSERVABILITY            : every query is timed and logged to logs/metrics.jsonl;
+                               /api/metrics aggregates it (grounded/refusal/cache/latency).
+  - SEMANTIC CACHE           : repeat/similar questions skip the LLM entirely.
+
+Cross-process rule that shows up throughout: the worker and the web server are
+different processes, so they share state through the filesystem (the index) and
+Redis (job status), never through Python memory.
 """
 import logging
 import sys
-import os
 import threading
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import uvicorn
+from celery.result import AsyncResult
 
-# Add project root to path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from config import (
-    get_project_root,
-    get_data_dir,
-    get_vectorstore_dir,
-    get_chunk_size,
-    get_chunk_overlap,
-    get_default_k,
-)
-from ingestion.ingest import (
-    extract_text_from_pdf,
-    extract_text_from_txt,
-    extract_text_from_markdown,
-)
-from chunking.chunker import chunk_documents
-from embeddings.embeddings import Embedder
-from vectorstore.index import VectorStore
-from retrieval.retriever import Retriever
-from retrieval.bm25_retrieval import BM25Retriever
-from llm.client import OpenRouterClient
-from llm.answer_engine import AnswerEngine
-from reflection.builder import build_answer_engine
+from indexing import DATA_DIR, INDEX_PATH, META_PATH, build_components
+from tasks import celery_app, index_document_task, full_rebuild_task
+import observability
+from cache import SemanticCache
 
-# --- Configuration ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -50,13 +41,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("RAG_WEB_APP")
 
-# Global state
 app = FastAPI(title="RAG Second Brain API")
-index_rebuild_status = {"rebuilding": False, "message": ""}
-rag_components = {"retriever": None, "engine": None}
-components_lock = threading.Lock()
 
-# Configure CORS
+rag_components = {"retriever": None, "engine": None}
+_last_index_mtime = None
+components_lock = threading.Lock()
+_cache: Optional[SemanticCache] = None   # semantic cache, created on startup
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -65,41 +56,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Data Paths ---
-DATA_DIR = get_project_root() / "data" / "raw_docs"
-VECTORSTORE_DIR = get_vectorstore_dir()
-INDEX_PATH = VECTORSTORE_DIR / "index.faiss"
-META_PATH = VECTORSTORE_DIR / "metadata.json"
-
-# Ensure directories exist
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-VECTORSTORE_DIR.mkdir(parents=True, exist_ok=True)
-
-
-# --- Pydantic Models ---
+# --- Models ---
 class ChatRequest(BaseModel):
     question: str
-
 
 class ChatResponse(BaseModel):
     answer: str
     sources: List[dict]
     grounded: bool
 
-
 class DocumentInfo(BaseModel):
     filename: str
     size: int
     date: str
 
-
-# --- Helper Functions ---
+# --- Helpers ---
 def format_citation(chunk: dict) -> str:
-    """Format source citation from chunk record."""
     source = Path(chunk.get("source", "Unknown")).name
     start = chunk.get("start_page")
     end = chunk.get("end_page")
-
     if start is None:
         return f"{source}"
     if end is None or start == end:
@@ -107,168 +82,41 @@ def format_citation(chunk: dict) -> str:
     return f"{source} (Pages {start}-{end})"
 
 
-def rebuild_index_background():
-    """Rebuild the vector store index in a background thread."""
-    global index_rebuild_status, rag_components
-
-    logger.info("Starting index rebuild in background...")
-
-    try:
-        # Check for API key
-        if not os.getenv("OPENROUTER_API_KEY"):
-            index_rebuild_status = {"rebuilding": False, "message": "Error: OPENROUTER_API_KEY not set"}
-            return
-
-        # Import and run the indexing logic
-        from ingestion.ingest import load_documents, PageRecord
-
-        # Load documents
-        files = load_documents(DATA_DIR)
-        if not files:
-            index_rebuild_status = {"rebuilding": False, "message": "No documents found"}
-            return
-
-        all_records: List[PageRecord] = []
-        for file_path in files:
-            suffix = file_path.suffix.lower()
-            records = []
-
-            try:
-                if suffix == ".pdf":
-                    records = extract_text_from_pdf(file_path)
-                elif suffix == ".txt":
-                    records = extract_text_from_txt(file_path)
-                elif suffix == ".md":
-                    records = extract_text_from_markdown(file_path)
-            except Exception as e:
-                logger.error(f"Failed to process {file_path.name}: {e}")
-                continue
-
-            if records:
-                all_records.extend(records)
-                logger.info(f"Processed {file_path.name}: {len(records)} records")
-
-        if not all_records:
-            index_rebuild_status = {"rebuilding": False, "message": "No text extracted"}
-            return
-
-        # Chunk documents
-        chunk_size = get_chunk_size()
-        chunk_overlap = get_chunk_overlap()
-        chunks = chunk_documents(all_records, chunk_size=chunk_size, overlap=chunk_overlap)
-        logger.info(f"Generated {len(chunks)} chunks")
-
-        # Generate embeddings
-        embedder = Embedder()
-        chunk_texts = [c["text"] for c in chunks]
-        vectors = embedder.embed_texts(chunk_texts)
-        logger.info(f"Created vectors with shape: {vectors.shape}")
-
-        # Create and save vector store
-        store = VectorStore(dim=vectors.shape[1])
-        store.add(chunks, vectors)
-        store.save(str(INDEX_PATH), str(META_PATH))
-        logger.info(f"Index saved to {VECTORSTORE_DIR}")
-
-        # Reinitialize RAG components
-        chunks_for_bm25 = list(store.metadata.values())
-        bm25_retriever = BM25Retriever(chunks_for_bm25) if chunks_for_bm25 else None
-        retriever = Retriever(embedder, store, sparse_retriever=bm25_retriever)
-        client = OpenRouterClient()
-        engine = build_answer_engine(retriever, client)
-
-        with components_lock:
+def get_engine():
+    """Return the engine, reloading from disk when the worker changed the index.
+    When the index changes, the semantic cache is cleared so we never serve an
+    answer from before a newly-added document."""
+    global _last_index_mtime
+    if not (INDEX_PATH.exists() and META_PATH.exists()):
+        return None
+    mtime = INDEX_PATH.stat().st_mtime
+    with components_lock:
+        if rag_components["engine"] is None or mtime != _last_index_mtime:
+            logger.info("Index changed on disk — reloading retriever/engine.")
+            retriever, engine = build_components()
             rag_components["retriever"] = retriever
             rag_components["engine"] = engine
+            _last_index_mtime = mtime
+            if _cache is not None:
+                _cache.clear()   # stale-answer guard
+        return rag_components["engine"]
 
-        index_rebuild_status = {"rebuilding": False, "message": "Index rebuilt successfully"}
-        logger.info("Index rebuild complete!")
-
-    except Exception as e:
-        logger.exception(f"Index rebuild failed: {e}")
-        index_rebuild_status = {"rebuilding": False, "message": f"Error: {str(e)}"}
-
-
-def init_rag_components():
-    """Initialize RAG components if index exists."""
-    global rag_components
-
-    if not INDEX_PATH.exists() or not META_PATH.exists():
-        logger.warning("Index not found. Please upload documents first.")
-        return False
-
-    try:
-        store = VectorStore.load(str(INDEX_PATH), str(META_PATH))
-        chunks = list(store.metadata.values())
-
-        embedder = Embedder()
-        bm25_retriever = BM25Retriever(chunks) if chunks else None
-        retriever = Retriever(embedder, store, sparse_retriever=bm25_retriever)
-        client = OpenRouterClient()
-        engine = build_answer_engine(retriever, client)
-
-        with components_lock:
-            rag_components["retriever"] = retriever
-            rag_components["engine"] = engine
-
-        logger.info("RAG components initialized successfully")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to initialize RAG components: {e}")
-        return False
-
-
-def trigger_index_rebuild():
-    """Trigger index rebuild in background thread."""
-    global index_rebuild_status
-
-    if index_rebuild_status["rebuilding"]:
-        return False
-
-    index_rebuild_status = {"rebuilding": True, "message": "Rebuilding index..."}
-    rebuild_thread = threading.Thread(target=rebuild_index_background, daemon=True)
-    rebuild_thread.start()
-    return True
-
-
-# --- API Routes ---
+# --- Routes ---
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    """Serve the frontend HTML file."""
-    static_dir = project_root / "static"
-    index_file = static_dir / "index.html"
-
+    index_file = project_root / "static" / "index.html"
     if index_file.exists():
         return index_file.read_text(encoding="utf-8")
-    else:
-        return HTMLResponse(
-            content="<html><body><h1>Frontend not found</h1><p>Please create static/index.html</p></body></html>",
-            status_code=404
-        )
-
-
-@app.get("/api/rebuild-status")
-async def get_rebuild_status():
-    """Get the current status of index rebuild."""
-    return index_rebuild_status
-
+    return HTMLResponse(content="<html><body><h1>Frontend not found</h1></body></html>", status_code=404)
 
 @app.post("/api/upload")
 async def upload_document(file: UploadFile = File(...)):
-    """Upload a PDF, TXT, or MD file and trigger index rebuild."""
-    # Validate file extension
-    allowed_extensions = {".pdf", ".txt", ".md"}
-    file_ext = Path(file.filename).suffix.lower()
-
-    if file_ext not in allowed_extensions:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type. Allowed: {allowed_extensions}"
-        )
-
-    # Save file
+    """Save the file and QUEUE indexing. Returns immediately with a task_id."""
+    allowed = {".pdf", ".txt", ".md"}
+    ext = Path(file.filename).suffix.lower()
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {allowed}")
     file_path = DATA_DIR / file.filename
-
     try:
         content = await file.read()
         with open(file_path, "wb") as f:
@@ -277,114 +125,117 @@ async def upload_document(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
 
-    # Trigger index rebuild in background
-    trigger_index_rebuild()
+    task = index_document_task.delay(file.filename)
+    return {"message": f"File '{file.filename}' uploaded — indexing queued", "task_id": task.id}
 
-    return {
-        "message": f"File '{file.filename}' uploaded successfully",
-        "rebuilding": True
+@app.get("/api/index-status/{task_id}")
+async def index_status(task_id: str):
+    """Poll a queued indexing job (drives the progress bar)."""
+    res = AsyncResult(task_id, app=celery_app)
+    info = res.info if isinstance(res.info, dict) else {}
+    done = res.state in ("SUCCESS", "FAILURE")
+    payload = {
+        "task_id": task_id,
+        "state": res.state,
+        "done": done,
+        "message": info.get("message", ""),
+        "progress": {"done": info.get("done", 0), "total": info.get("total", 0)},
     }
+    if res.state == "FAILURE":
+        payload["message"] = f"Indexing failed: {res.info}"
+    return payload
 
+@app.get("/api/metrics")
+async def metrics():
+    """Aggregated observability numbers — the dashboard endpoint."""
+    return observability.summary()
 
 @app.get("/api/documents", response_model=List[DocumentInfo])
 async def list_documents():
-    """List all uploaded documents."""
     documents = []
-
     if not DATA_DIR.exists():
         return documents
-
     for file_path in DATA_DIR.iterdir():
         if file_path.is_file():
             stat = file_path.stat()
             documents.append(DocumentInfo(
-                filename=file_path.name,
-                size=stat.st_size,
-                date=datetime.fromtimestamp(stat.st_mtime).isoformat()
+                filename=file_path.name, size=stat.st_size,
+                date=datetime.fromtimestamp(stat.st_mtime).isoformat(),
             ))
-
-    # Sort by date, newest first
     documents.sort(key=lambda x: x.date, reverse=True)
     return documents
 
-
 @app.delete("/api/documents/{filename}")
 async def delete_document(filename: str):
-    """Delete a document and trigger index rebuild."""
     file_path = DATA_DIR / filename
-
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"Document '{filename}' not found")
-
     try:
         file_path.unlink()
-        logger.info(f"Deleted file: {file_path}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
-
-    # Trigger index rebuild in background
-    trigger_index_rebuild()
-
-    return {
-        "message": f"Document '{filename}' deleted successfully",
-        "rebuilding": True
-    }
-
+    task = full_rebuild_task.delay()
+    return {"message": f"Document '{filename}' deleted — rebuild queued", "task_id": task.id}
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """Ask a question and get an answer with sources."""
-    # Check if components are initialized
-    with components_lock:
-        engine = rag_components.get("engine")
-
+    engine = get_engine()
     if engine is None:
-        # Try to initialize components
-        if not init_rag_components():
-            raise HTTPException(
-                status_code=400,
-                detail="RAG system not initialized. Please upload documents first."
-            )
-        with components_lock:
-            engine = rag_components.get("engine")
+        raise HTTPException(status_code=400, detail="RAG system not initialized. Please upload documents first.")
 
-    if engine is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to initialize RAG engine"
-        )
+    # 1. Semantic cache: a similar question already answered? Skip the LLM.
+    if _cache is not None:
+        cached = _cache.get(request.question)
+        if cached is not None:
+            observability.record({
+                "event": "query", "question": request.question,
+                "grounded": cached.grounded, "num_sources": len(cached.sources),
+                "cache_hit": True, "latency_ms": 0.0,
+            })
+            return cached
 
+    # 2. Cache miss: run the pipeline, timing it (this is the "trace").
     try:
-        result = engine.generate_answer(request.question)
+        with observability.Timer() as t:
+            result = engine.generate_answer(request.question)
 
-        # Format sources
         sources = []
         if result.get("grounded") and result.get("citations"):
             for score, chunk in result["citations"]:
+                text = chunk.get("text", "")
                 sources.append({
                     "score": float(score),
                     "source": format_citation(chunk),
-                    "text": chunk.get("text", "")[:200] + "..." if len(chunk.get("text", "")) > 200 else chunk.get("text", "")
+                    "text": text[:200] + "..." if len(text) > 200 else text,
                 })
-
-        return ChatResponse(
+        response = ChatResponse(
             answer=result.get("answer", "No answer generated"),
             sources=sources,
-            grounded=result.get("grounded", False)
+            grounded=result.get("grounded", False),
         )
 
+        # 3. Observability: one metrics line per query.
+        observability.record({
+            "event": "query", "question": request.question,
+            "grounded": response.grounded, "num_sources": len(sources),
+            "cache_hit": False, "latency_ms": round(t.ms, 1),
+        })
+
+        # 4. Cache the fresh answer for next time.
+        if _cache is not None:
+            _cache.put(request.question, response)
+
+        return response
     except Exception as e:
         logger.exception(f"Chat error: {e}")
         raise HTTPException(status_code=500, detail=f"Error generating answer: {str(e)}")
 
-
-# --- Startup Event ---
 @app.on_event("startup")
 async def startup_event():
-    """Initialize RAG components on startup."""
+    global _cache
     logger.info("Initializing RAG Second Brain API...")
-    init_rag_components()
-
+    _cache = SemanticCache(threshold=0.95, max_size=256)   # loads the embedder once
+    get_engine()  # warm the engine if an index already exists
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
