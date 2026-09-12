@@ -44,17 +44,17 @@ class BM25Retriever:
             tokens = self._tokenize(searchable_text)
             
             if not tokens:
-                logger.debug(f"⚠️ Empty BM25 tokens for chunk {chunk['chunk_id']}")
+                logger.debug(f" Empty BM25 tokens for chunk {chunk['chunk_id']}")
                 
             tokenized_corpus.append(tokens)
 
         # 2. Build Index
         if not tokenized_corpus:
-            logger.warning("⚠️ BM25 initialized with empty corpus.")
+            logger.warning(" BM25 initialized with empty corpus.")
             self.bm25 = None
         else:
             self.bm25 = BM25Okapi(tokenized_corpus)
-            logger.info(f"✅ BM25 Index built for {self._corpus_size} chunks.")
+            logger.info(f" BM25 Index built for {self._corpus_size} chunks.")
 
     def _tokenize(self, text: str) -> List[str]:
         """Robust regex-based tokenizer."""

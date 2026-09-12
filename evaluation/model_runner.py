@@ -34,7 +34,7 @@ def load_questions(path: Path) -> List[Dict[str, Any]]:
     }]
     """
     if not path.exists():
-        logger.warning(f"⚠️ {path} not found. Creating sample dataset with extended schema.")
+        logger.warning(f" {path} not found. Creating sample dataset with extended schema.")
         sample_data = [
             {
                 "id": "q1", 
@@ -71,31 +71,31 @@ def run_benchmark():
 
     # 1. Pre-flight Checks
     if not os.getenv("OPENROUTER_API_KEY"):
-        logger.error("❌ OPENROUTER_API_KEY missing.")
+        logger.error(" OPENROUTER_API_KEY missing.")
         return
 
     if not (DATA_DIR / "index.faiss").exists():
-        logger.error("❌ Index not found. Run build_index.py first.")
+        logger.error(" Index not found. Run build_index.py first.")
         return
 
     questions = load_questions(QUESTIONS_PATH)
-    logger.info(f"🧪 Loaded {len(questions)} test cases.")
+    logger.info(f" Loaded {len(questions)} test cases.")
 
     # 2. Load Shared Components
-    logger.info("🧠 Loading VectorStore...")
+    logger.info(" Loading VectorStore...")
     try:
         store = VectorStore.load(str(DATA_DIR / "index.faiss"), str(DATA_DIR / "metadata.json"))
         embedder = Embedder()
         retriever = Retriever(embedder, store)
     except Exception as e:
-        logger.critical(f"❌ Setup failed: {e}")
+        logger.critical(f" Setup failed: {e}")
         return
 
     final_results = {}
 
     # 3. Model Loop
     for model_name in TARGET_MODELS:
-        logger.info(f"\n🚀 Benchmarking: {model_name}")
+        logger.info(f"\n Benchmarking: {model_name}")
         
         # Determine Rate Limit Strategy
         sleep_duration = 1.2 if "glm-4.6" in model_name else 0.5
@@ -142,7 +142,7 @@ def run_benchmark():
                     retrieved_citations = result.get("citations", [])
                     
                     # New: Check for formatting failure
-                    format_failed = answer_text.startswith("⚠️")
+                    format_failed = answer_text.startswith("")
                     if format_failed:
                         stats["citation_format_errors"] += 1
 
@@ -222,11 +222,11 @@ def run_benchmark():
 
                     # Visual Feedback
                     symbol_map = {
-                        "TP_strong": "✅", "TP_weak": "⚠️", 
-                        "TN": "🛡️", "FP": "🚨", "FN": "❌"
+                        "TP_strong": "", "TP_weak": "", 
+                        "TN": "", "FP": "", "FN": ""
                     }
                     if format_failed:
-                        print("📝", end="", flush=True) # Special icon for format fail
+                        print("", end="", flush=True) # Special icon for format fail
                     else:
                         print(symbol_map.get(status, "?"), end="", flush=True)
                     
@@ -234,7 +234,7 @@ def run_benchmark():
                     time.sleep(sleep_duration)
 
                 except Exception as e:
-                    print("💥", end="", flush=True)
+                    print("", end="", flush=True)
                     stats["errors"] += 1
                     details.append({"id": q_id, "error": str(e)})
 
@@ -278,14 +278,14 @@ def run_benchmark():
             logger.info(f"   -> Recall: {summary['metrics']['retrieval_recall']} | Format Errs: {stats['citation_format_errors']}")
 
         except Exception as e:
-            logger.error(f"   ❌ Failed model {model_name}: {e}")
+            logger.error(f"    Failed model {model_name}: {e}")
             final_results[model_name] = {"error": str(e)}
 
     # 5. Save Report
     with open(RESULTS_PATH, 'w', encoding='utf-8') as f:
         json.dump(final_results, f, indent=2)
     
-    logger.info(f"\n📊 Detailed Report saved to: {RESULTS_PATH}")
+    logger.info(f"\n Detailed Report saved to: {RESULTS_PATH}")
 
 if __name__ == "__main__":
     run_benchmark()

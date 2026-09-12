@@ -38,7 +38,7 @@ def main():
     chunk_size = get_chunk_size()
     chunk_overlap = get_chunk_overlap()
 
-    logger.info("🚀 Starting Index Build...")
+    logger.info(" Starting Index Build...")
     logger.info(f"   Data Source: {DATA_ROOT}")
     logger.info(f"   Output:      {VECTORSTORE_DIR}")
     logger.info(f"   Chunk Size:  {chunk_size}, Overlap: {chunk_overlap}")
@@ -46,7 +46,7 @@ def main():
     # 2. Ingestion
     files = load_documents(DATA_ROOT)
     if not files:
-        logger.error("❌ No files found in data/ directory.")
+        logger.error(" No files found in data/ directory.")
         return
 
     all_records: List[PageRecord] = []
@@ -71,30 +71,31 @@ def main():
             logger.info(f"   Processed {file_path.name}: {len(records)} pages")
 
     if not all_records:
-        logger.warning("❌ No text extracted. Exiting.")
+        logger.warning(" No text extracted. Exiting.")
         return
 
     # 3. Chunking
-    logger.info("✂️  Chunking Documents...")
+    logger.info("  Chunking Documents...")
     chunks = chunk_documents(all_records)
     logger.info(f"   Generated {len(chunks)} chunks.")
 
     # 4. Embedding
-    logger.info("🧠 Generating Embeddings...")
+    logger.info(" Generating Embeddings...")
     embedder = Embedder()
     chunk_texts = [c["text"] for c in chunks]
     vectors = embedder.embed_texts(chunk_texts)
     logger.info(f"   Created vectors with shape: {vectors.shape}")
 
     # 5. Indexing
-    logger.info("💾 Saving to Vector Store...")
+    logger.info(" Saving to Vector Store...")
     store = VectorStore(dim=vectors.shape[1])
     store.add(chunks, vectors)
 
     # 6. Persistence
     store.save(str(INDEX_PATH), str(META_PATH))
-    logger.info(f"✅ Build Complete. Index saved to {VECTORSTORE_DIR}")
+    logger.info(f" Build Complete. Index saved to {VECTORSTORE_DIR}")
 
 
 if __name__ == "__main__":
     main()
+

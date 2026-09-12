@@ -26,7 +26,7 @@ logger.setLevel(logging.INFO)
 def check_api_key() -> bool:
     """Ensure OpenRouter API key is present."""
     if not os.getenv("OPENROUTER_API_KEY"):
-        print("\n❌ Error: OPENROUTER_API_KEY not found in environment.")
+        print("\n Error: OPENROUTER_API_KEY not found in environment.")
         print("   Please set it before running:")
         print("   Option 1: Create a .env file with OPENROUTER_API_KEY=your_key")
         print("   Option 2: Set environment variable:")
@@ -59,12 +59,12 @@ def main():
 
     # 2. Verify Data Existence
     if not INDEX_PATH.exists() or not META_PATH.exists():
-        logger.error(f"❌ Index not found at {VECTORSTORE_DIR}")
+        logger.error(f" Index not found at {VECTORSTORE_DIR}")
         print("   Run 'python build_index.py' first to ingest your documents.")
         return
 
     # 3. Initialize Components (The Cold Start)
-    print("🧠 Loading Second Brain... (This may take a moment)")
+    print(" Loading Second Brain... (This may take a moment)")
 
     try:
         # Load Knowledge Base
@@ -85,10 +85,10 @@ def main():
         engine = AnswerEngine(retriever, client)
         
     except Exception as e:
-        logger.exception(f"❌ Critical Startup Error: {e}")
+        logger.exception(f" Critical Startup Error: {e}")
         return
 
-    print("✅ System Online. Ask me anything about your documents.")
+    print(" System Online. Ask me anything about your documents.")
     print("   (Type 'exit', 'quit', or 'q' to stop)\n")
 
     # 4. Interactive Chat Loop
@@ -114,14 +114,14 @@ def main():
             print(" " * 20, end="\r")
 
             # --- DISPLAY ---
-            print(f"🤖 AI: {result['answer']}\n")
+            print(f" AI: {result['answer']}\n")
 
             # Show citations ONLY if grounded (relevant docs found)
             if result['grounded'] and result['citations']:
                 print("--- Sources ---")
                 for score, chunk in result['citations']:
                     citation_str = format_citation(chunk)
-                    print(f"• [{score:.2f}] {citation_str}")
+                    print(f" [{score:.2f}] {citation_str}")
                 print("-" * 30 + "\n")
             elif not result['grounded']:
                 print("(No relevant sources found above threshold)\n")
@@ -131,7 +131,7 @@ def main():
             break
         except Exception as e:
             logger.error(f"Runtime Error: {e}")
-            print("❌ An error occurred. Check logs for details.\n")
+            print(" An error occurred. Check logs for details.\n")
 
 if __name__ == "__main__":
     main()

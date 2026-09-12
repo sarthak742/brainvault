@@ -4,6 +4,7 @@ from typing import List, Tuple, Dict, Any
 # We use "Any" for strict dependency injection to avoid circular imports
 from chunking.chunker import ChunkRecord
 from retrieval.hybrid_retriever import HybridRetriever
+from config import get_hybrid_alpha
 
 logger = logging.getLogger(__name__)
 
@@ -15,17 +16,21 @@ class Retriever:
     - If NOT -> routes via internal Dense logic (legacy behavior).
     """
 
-    def __init__(self, embedder: Any, store: Any, sparse_retriever: Any = None):
+    def __init__(self, embedder: Any, store: Any, sparse_retriever: Any = None, alpha: float = None):
         """
         Args:
             embedder: Instance with .embed_query(text) -> np.array
             store: Instance with .search(vector, k) -> List[Tuple[float, ChunkRecord]]
             sparse_retriever: Optional instance of BM25Retriever.
+            alpha: Dense weight for hybrid fusion. Falls back to config.yaml.
         """
         self.embedder = embedder
         self.store = store
         self.sparse_retriever = sparse_retriever
-        
+
+        # Read from config unless explicitly overridden (e.g. by the eval sweep)
+        self.alpha = get_hybrid_alpha() if alpha is None else alpha
+
         # Initialize Hybrid Logic if components exist
         self.hybrid_runner = None
         if self.sparse_retriever:
@@ -34,7 +39,8 @@ class Retriever:
             dense_delegate = _DenseDelegate(self)
             self.hybrid_runner = HybridRetriever(
                 dense_retriever=dense_delegate, 
-                sparse_retriever=self.sparse_retriever
+                sparse_retriever=self.sparse_retriever,
+                alpha=self.alpha
             )
 
     def retrieve(self, query: str, k: int = 5) -> List[Tuple[float, ChunkRecord]]:

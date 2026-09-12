@@ -14,29 +14,39 @@ class OpenRouterClient:
     def __init__(
         self, 
         api_key: Optional[str] = None, 
-        model: str = "deepseek/deepseek-r1", 
-        base_url: str = "https://openrouter.ai/api/v1/chat/completions", 
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
         timeout: int = 30
     ):
         """
-        Initialize the OpenRouter client.
+        Initialize the LLM client.
+
+        Provider-agnostic: works with any OpenAI-compatible chat-completions
+        endpoint (OpenRouter, NVIDIA NIM, Groq, local vLLM). Defaults come from
+        config.yaml so switching providers means editing config, not code.
 
         Args:
-            api_key: OpenRouter API key. If None, tries OPENROUTER_API_KEY env var.
-            model: Model identifier (e.g., 'deepseek/deepseek-r1').
-            base_url: Full API endpoint URL.
+            api_key: API key. If None, reads the env var named by
+                     `llm_api_key_env` in config.yaml.
+            model: Model identifier. Defaults to config `llm_model`.
+            base_url: Full endpoint URL. Defaults to config `llm_base_url`.
             timeout: Request timeout in seconds.
 
         Raises:
             ValueError: If API key is missing.
         """
-        self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
-        
-        if not self.api_key:
-            raise ValueError("API Key is required. Pass it explicitly or set OPENROUTER_API_KEY environment variable.")
+        from config import get_llm_base_url, get_llm_model, get_llm_api_key, get_llm_key_env
 
-        self.model = model
-        self.base_url = base_url
+        self.api_key = api_key or get_llm_api_key()
+
+        if not self.api_key:
+            raise ValueError(
+                f"API Key is required. Set {get_llm_key_env()} in your .env "
+                f"or pass it explicitly."
+            )
+
+        self.model = model or get_llm_model()
+        self.base_url = base_url or get_llm_base_url()
         self.timeout = timeout
 
     def generate(self, prompt: str) -> str:

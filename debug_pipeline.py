@@ -29,7 +29,7 @@ print("\n=== SAMPLE CHUNKS ===")
 for i, c in enumerate(chunks[:5]):
     print(f"\n--- Chunk {i+1} ---")
     print("Source:", c["source"])
-    print("Pages:", c["start_page"], "→", c["end_page"])
+    print("Pages:", c["start_page"], "", c["end_page"])
     print("Length:", len(c["text"]))
     print("Text Preview:")
     print(c["text"][:500])

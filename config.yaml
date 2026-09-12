@@ -15,7 +15,22 @@ chunk_overlap: 200
 
 # Retrieval settings
 default_k: 5
+
+# score_threshold applies to the FUSED score, which is min-max normalized and
+# therefore always 1.0 for the top hit. Kept only for backward compatibility.
+# It cannot be used to detect out-of-corpus questions.
 score_threshold: 0.25
+
+# grounding_threshold applies to the RAW cosine similarity, which has absolute
+# meaning and is comparable across queries. This is the one that decides
+# whether the corpus can answer at all.
+#
+# Calibrated 2026-08-01 on 12 in-corpus and 8 out-of-corpus questions:
+#   in-corpus  min 0.333, mean 0.567
+#   out-corpus max 0.313, mean 0.174
+# Separable, but by only 0.020 -- treat as provisional and re-calibrate as the
+# eval set grows. Raising it refuses more; lowering it invents more.
+grounding_threshold: 0.32
 
 # Hybrid retrieval settings (alpha: weight for dense, 1-alpha: weight for sparse)
 hybrid_alpha: 0.5
@@ -25,16 +40,29 @@ embedding_model: "all-MiniLM-L6-v2"
 embedding_batch_size: 32
 
 # LLM settings
-llm_model: "deepseek/deepseek-r1"
+# Provider-agnostic: any OpenAI-compatible chat-completions endpoint.
+#   NVIDIA NIM  https://integrate.api.nvidia.com/v1/chat/completions  (key: nvapi-...)
+#   OpenRouter  https://openrouter.ai/api/v1/chat/completions
+llm_base_url: "https://integrate.api.nvidia.com/v1/chat/completions"
+llm_api_key_env: "NVIDIA_API_KEY"
+llm_model: "meta/llama-3.3-70b-instruct"
 llm_temperature: 0.0
 llm_timeout: 120
+
+# OCR settings
+# 'nvidia'    = vision-language model via NIM. Best on handwriting. 1 request/page.
+# 'tesseract' = local, free, offline. Fine on printed text, FAILS on cursive.
+# 'sarvam'    = Sarvam Vision API, strong on Indic scripts, needs a separate key.
+ocr_engine: "nvidia"
+ocr_vlm_model: "meta/llama-3.2-11b-vision-instruct"
+ocr_vlm_url: "https://integrate.api.nvidia.com/v1/chat/completions"
 
 # OCR settings (for scanned PDFs)
 ocr_enabled: true
 ocr_dpi: 200
 
-# Sarvam Vision OCR settings (for handwritten/scanned PDFs)
-sarvam_ocr_enabled: true
+# Sarvam Vision OCR settings (only used when ocr_engine: "sarvam")
+sarvam_ocr_enabled: false
 sarvam_language: "en-IN"
 
 # Evaluation settings

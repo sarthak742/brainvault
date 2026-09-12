@@ -14,7 +14,7 @@ import io
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from config import get_project_root, get_sarvam_api_key, is_sarvam_ocr_enabled, get
+from config import get_project_root, get_sarvam_api_key, is_sarvam_ocr_enabled, get, get_ocr_engine
 
 # Try to import pdf2image for PDF to image conversion
 PDF2IMAGE_AVAILABLE = False
@@ -236,6 +236,163 @@ def _extract_text_with_sarvam_from_pdf(file_path: Path) -> List[str]:
         return []
 
 
+def _extract_text_with_tesseract_from_pdf(file_path: Path) -> List[str]:
+    """
+    Rasterise each page and OCR it locally with Tesseract.
+
+    Free, offline, no API key. Weaker than a hosted vision model on messy
+    handwriting, but it costs nothing per page, which matters when you are
+    re-ingesting the same corpus repeatedly while tuning.
+
+    Returns a list of page texts, index-aligned with the PDF's pages.
+    """
+    try:
+        import pytesseract
+        from pdf2image import convert_from_path
+    except ImportError:
+        logger.warning("pytesseract/pdf2image not installed. Tesseract OCR unavailable.")
+        return []
+
+    dpi = get('ocr_dpi', 200)
+    try:
+        logger.info(f"Tesseract OCR starting for {file_path.name} at {dpi} DPI...")
+        images = convert_from_path(str(file_path), dpi=dpi)
+    except Exception as e:
+        logger.error(f"Could not rasterise {file_path.name}: {e}")
+        return []
+
+    texts = []
+    for i, img in enumerate(images, start=1):
+        try:
+            # osd auto-rotates pages photographed sideways. Without this, the
+            # rotated page in a scanned notebook OCRs to noise.
+            osd_img = img
+            try:
+                osd = pytesseract.image_to_osd(img)
+                rot = int([l for l in osd.splitlines() if "Rotate:" in l][0].split(":")[1])
+                if rot:
+                    osd_img = img.rotate(-rot, expand=True)
+                    logger.info(f"Page {i}: auto-rotated {rot} degrees")
+            except Exception:
+                pass  # OSD fails on sparse pages; fall back to original
+
+            text = pytesseract.image_to_string(osd_img)
+            texts.append(text)
+            logger.info(f"Tesseract page {i}: {len(text.strip())} chars")
+        except Exception as e:
+            logger.error(f"Tesseract failed on page {i}: {e}")
+            texts.append("")
+
+    return texts
+
+
+def _extract_text_with_nvidia_vlm(file_path: Path, pages: List[int] = None) -> List[str]:
+    """
+    OCR pages using a vision-language model on NVIDIA NIM.
+
+    Why a VLM rather than Tesseract: Tesseract matches glyph shapes and has no
+    language model, so cursive handwriting photographed at an angle produces
+    either nothing or noise. A VLM reads in context -- it can infer
+    "insulation resistance" from ambiguous strokes because the surrounding
+    words make it the only sensible reading.
+
+    Args:
+        pages: zero-based page indices to OCR. None means all pages.
+               Passing only the pages that need it roughly halves the request
+               count on a typical mixed corpus.
+
+    Returns a list index-aligned with the PDF's pages; pages that were not
+    requested come back as empty strings.
+    """
+    import base64, io, requests
+    from config import get_llm_api_key, get
+
+    try:
+        from pdf2image import convert_from_path
+    except ImportError:
+        logger.warning("pdf2image not installed. NVIDIA VLM OCR unavailable.")
+        return []
+
+    key = get_llm_api_key()
+    if not key:
+        logger.warning("No NVIDIA API key set. Skipping VLM OCR.")
+        return []
+
+    model = get('ocr_vlm_model', 'meta/llama-3.2-11b-vision-instruct')
+    url = get('ocr_vlm_url', 'https://integrate.api.nvidia.com/v1/chat/completions')
+    dpi = get('ocr_dpi', 200)
+
+    prompt = (
+        "Transcribe all handwritten and printed text in this page image "
+        "exactly as written. Preserve tables as rows. Include labels on any "
+        "diagrams. Output plain text only: no markdown, no bold, no headings, "
+        "no commentary, no preamble."
+    )
+
+    try:
+        images = convert_from_path(str(file_path), dpi=dpi)
+    except Exception as e:
+        logger.error(f"Could not rasterise {file_path.name}: {e}")
+        return []
+
+    texts = []
+    wanted = set(range(len(images))) if pages is None else set(pages)
+    skipped = 0
+    for i, img in enumerate(images, start=1):
+        if (i - 1) not in wanted:
+            texts.append("")
+            skipped += 1
+            continue
+        try:
+            # Downscale: VLMs cap input resolution and large payloads get rejected.
+            img.thumbnail((1600, 1600))
+            buf = io.BytesIO()
+            img.convert("RGB").save(buf, format="JPEG", quality=85)
+            b64 = base64.b64encode(buf.getvalue()).decode()
+
+            resp = requests.post(
+                url,
+                headers={"Authorization": "Bearer " + key,
+                         "Content-Type": "application/json"},
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url",
+                         "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                    ]}],
+                    "max_tokens": 2048,
+                    "temperature": 0.0,
+                },
+                timeout=180,
+            )
+            resp.raise_for_status()
+            text = resp.json()["choices"][0]["message"]["content"]
+            texts.append(text)
+            logger.info(f"VLM OCR page {i}: {len(text.strip())} chars")
+        except Exception as e:
+            logger.error(f"VLM OCR failed on page {i}: {str(e)[:160]}")
+            texts.append("")
+
+    if skipped:
+        logger.info(f"Skipped {skipped} pages that already had extractable text.")
+
+    return texts
+
+
+def _run_ocr(file_path: Path, pages: List[int] = None) -> List[str]:
+    """Dispatch to the OCR engine named in config.yaml."""
+    engine = get_ocr_engine()
+    if engine == "sarvam":
+        if is_sarvam_ocr_enabled():
+            return _extract_text_with_sarvam_from_pdf(file_path)
+        logger.warning("ocr_engine is 'sarvam' but no key is set. Skipping OCR.")
+        return []
+    if engine == "nvidia":
+        return _extract_text_with_nvidia_vlm(file_path, pages=pages)
+    return _extract_text_with_tesseract_from_pdf(file_path)
+
+
 def extract_text_from_pdf(file_path: Path, use_sarvam_fallback: bool = True) -> List[PageRecord]:
     """
     Extracts text from a PDF file page by page.
@@ -274,22 +431,37 @@ def extract_text_from_pdf(file_path: Path, use_sarvam_fallback: bool = True) -> 
                 "text": ""
             })
 
-    # Check if we need Sarvam OCR fallback
-    if use_sarvam_fallback and is_sarvam_ocr_enabled():
-        # Check if any pages have empty text
-        total_chars = sum(len(r['text']) for r in records)
+    # Check if we need an OCR fallback
+    if use_sarvam_fallback and get_ocr_engine():
+        # Decide PER PAGE, not on the document total.
+        #
+        # Previously this summed chars across the whole document and skipped OCR
+        # if the total exceeded 50. That meant a single page with a text
+        # watermark could disable OCR for every other page in the file, and
+        # slide decks with extractable titles but image-only diagrams were
+        # silently ingested with their real content missing.
+        MIN_CHARS_PER_PAGE = 100
+        sparse_pages = [
+            i for i, r in enumerate(records)
+            if len(r['text'].strip()) < MIN_CHARS_PER_PAGE
+        ]
 
-        if total_chars < 50:  # Very little text extracted, likely scanned
-            logger.info(f"Low text extraction from {file_path}. Attempting Sarvam OCR...")
-            sarvam_texts = _extract_text_with_sarvam_from_pdf(file_path)
+        if sparse_pages:
+            logger.info(
+                f"{len(sparse_pages)}/{len(records)} pages below "
+                f"{MIN_CHARS_PER_PAGE} chars in {file_path.name}. Running OCR "
+                f"({get_ocr_engine()})..."
+            )
+            ocr_texts = _run_ocr(file_path, pages=sparse_pages)
 
-            if sarvam_texts:
-                # Update records with Sarvam OCR text
-                for i, sarvam_text in enumerate(sarvam_texts):
-                    if i < len(records):
-                        if not records[i]['text'].strip() and sarvam_text.strip():
-                            records[i]['text'] = sarvam_text
-                            logger.info(f"Sarvam OCR successful for page {i+1}: {len(sarvam_text)} chars")
+            if ocr_texts:
+                # Only overwrite the pages that were actually text-poor.
+                for i in sparse_pages:
+                    if i < len(ocr_texts) and ocr_texts[i].strip():
+                        records[i]['text'] = ocr_texts[i]
+                        logger.info(
+                            f"OCR recovered page {i+1}: {len(ocr_texts[i])} chars"
+                        )
 
     # Log any pages that still have no text
     for record in records:

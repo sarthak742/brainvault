@@ -101,9 +101,9 @@ class ChunkRegistry:
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(payload, f, indent=2)
-            logger.info(f"✅ Registry saved to {path} ({len(self._chunks)} chunks)")
+            logger.info(f" Registry saved to {path} ({len(self._chunks)} chunks)")
         except Exception as e:
-            logger.error(f"❌ Failed to save registry: {e}")
+            logger.error(f" Failed to save registry: {e}")
             raise
 
     @classmethod
@@ -140,11 +140,11 @@ class ChunkRegistry:
             
             # 4. Integrity Check
             if len(registry._chunks) != len(raw_chunks):
-                logger.warning("⚠️ Registry loaded with duplicate ID removal. Check source file integrity.")
+                logger.warning(" Registry loaded with duplicate ID removal. Check source file integrity.")
             
-            logger.info(f"✅ Registry loaded from {path} ({len(registry._chunks)} chunks)")
+            logger.info(f" Registry loaded from {path} ({len(registry._chunks)} chunks)")
             return registry
             
         except Exception as e:
-            logger.error(f"❌ Failed to load registry: {e}")
+            logger.error(f" Failed to load registry: {e}")
             raise

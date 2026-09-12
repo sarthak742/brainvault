@@ -62,9 +62,24 @@ class HybridRetriever:
         """
         Execute Hybrid Retrieval:
         1. Fetch dense & sparse results (oversampling k*2).
-        2. Normalize scores.
+        2. Normalize scores for fusion, but PRESERVE the raw dense similarity.
         3. Merge and deduplicate using chunk_id (with fallback).
         4. Sort and return top k.
+
+        On the two kinds of score
+        -------------------------
+        The fused score is min-max normalized, so the best chunk in any batch
+        is always exactly 1.0 and the worst is always 0.0. That makes it a
+        RANKING signal only: it says which chunk is most relevant relative to
+        the others returned, and says nothing about whether any of them are
+        relevant at all. Thresholding on it cannot work -- an out-of-domain
+        query still produces a 1.0.
+
+        The raw dense score is a genuine cosine similarity (the embedder uses
+        normalize_embeddings=True and the store is IndexFlatIP), so it has
+        absolute meaning and is comparable across queries. It is attached to
+        each chunk as `_dense_score` so the answer engine can decide whether
+        the corpus actually contains an answer.
         """
         # 1. Fetch Candidates (Oversample to allow effective merging)
         dense_res = self.dense.retrieve(query, k=k*2)
@@ -73,6 +88,12 @@ class HybridRetriever:
         if not dense_res and not sparse_res:
             logger.warning("HybridRetriever: Both retrievers returned empty results.")
             return []
+
+        # 1b. Record raw (un-normalized) cosine similarity per chunk BEFORE fusion.
+        raw_dense: Dict[str, float] = {}
+        for score, chunk in dense_res:
+            cid = chunk.get("chunk_id") or self._generate_fallback_id(chunk)
+            raw_dense[cid] = float(score)
 
         # 2. Normalize Scores
         dense_norm = self._normalize_scores(dense_res)
@@ -103,8 +124,13 @@ class HybridRetriever:
         # 4. Final Sort & Truncate
         final_results = []
         for cid, score in combined_scores.items():
-            final_results.append((score, chunk_map[cid]))
-        
+            chunk = chunk_map[cid]
+            # Carry the absolute-scale similarity alongside the ranking score.
+            # A chunk found only by BM25 has no dense score; -1.0 marks that
+            # explicitly rather than pretending it scored zero similarity.
+            chunk["_dense_score"] = raw_dense.get(cid, -1.0)
+            final_results.append((score, chunk))
+
         # Sort descending by fused score
         final_results.sort(key=lambda x: x[0], reverse=True)
         

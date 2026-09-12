@@ -60,20 +60,54 @@ class AnswerEngine:
         query: str,
         k: int = 5,
         score_threshold: float = 0.25,
+        grounding_threshold: float = None,
         max_context_chars: int = 10_000,
     ) -> AnswerResult:
         """
         End-to-end RAG generation with safety guards and citation validation.
         """
+        from config import get_grounding_threshold
+        if grounding_threshold is None:
+            grounding_threshold = get_grounding_threshold()
 
         # 1. Retrieve
         logger.info(f"Retrieving context for: {query}")
         raw_results = self.retriever.retrieve(query, k=k)
 
-        # 2. Filter by score
+        # 2. Decide whether the corpus can answer at all.
+        #
+        # This MUST use the raw cosine similarity, not the fused score. The
+        # fused score is min-max normalized, so the top chunk is always 1.0
+        # and every query looks perfectly answerable -- including "What is the
+        # capital of Brazil?". `_dense_score` is attached by HybridRetriever
+        # and carries absolute, cross-query-comparable meaning.
+        #
+        # Chunks matched only by BM25 carry -1.0 (no dense score). They are
+        # kept if anything else in the batch cleared the bar, because a strong
+        # keyword match on a page the embedding missed is still a real hit.
+        best_dense = max(
+            (c.get("_dense_score", -1.0) for _s, c in raw_results),
+            default=-1.0,
+        )
+
+        if best_dense < grounding_threshold:
+            logger.warning(
+                f"Best dense similarity {best_dense:.3f} < grounding threshold "
+                f"{grounding_threshold:.3f}. Refusing to answer."
+            )
+            return {
+                "answer": (
+                    "I could not find any relevant information in your documents "
+                    "to answer this question."
+                ),
+                "citations": [],
+                "grounded": False,
+            }
+
+        # Rank-based filter, kept for ordering/trimming within a grounded result.
         valid_results = [
             (score, chunk) for score, chunk in raw_results if score >= score_threshold
-        ]
+        ] or raw_results
 
         # 3. Fail fast if nothing usable
         if not valid_results:
@@ -132,12 +166,12 @@ class AnswerEngine:
         found_indices = [int(m) for m in matches]
 
         if not found_indices:
-            warning = "⚠️ Answer may be unreliable due to missing citations.\n"
+            warning = " Answer may be unreliable due to missing citations.\n"
             return False, warning + answer_text
 
         valid_range = range(1, num_chunks + 1)
         if any(idx not in valid_range for idx in found_indices):
-            warning = "⚠️ Answer may be unreliable due to invalid citations.\n"
+            warning = " Answer may be unreliable due to invalid citations.\n"
             return False, warning + answer_text
 
         return True, answer_text

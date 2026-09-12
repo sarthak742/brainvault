@@ -5,4 +5,6 @@ __pycache__/
 vectorstore_data/
 data/raw_docs/
 *.faiss
-*.json
+vectorstore_data/*.json
+
+eval/results.json

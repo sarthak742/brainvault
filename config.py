@@ -146,9 +146,48 @@ def get_hybrid_alpha() -> float:
     return get('hybrid_alpha', 0.5)
 
 
+def get_grounding_threshold() -> float:
+    """
+    Minimum RAW cosine similarity for the corpus to be considered capable of
+    answering. Distinct from score_threshold, which applies to the normalized
+    fused score and cannot detect out-of-corpus queries.
+    """
+    return get('grounding_threshold', 0.32)
+
+
 def get_openrouter_api_key() -> str:
-    """Get the OpenRouter API key from environment."""
+    """Get the OpenRouter API key from environment. (Legacy alias.)"""
     return os.getenv('OPENROUTER_API_KEY', '')
+
+
+# --- Provider-agnostic LLM settings -------------------------------------
+# The client speaks the OpenAI chat-completions format, which OpenRouter,
+# NVIDIA NIM, Groq and local vLLM all implement. Switching provider is a
+# config.yaml edit: base URL, model ID, and which env var holds the key.
+
+def get_llm_base_url() -> str:
+    """Full chat-completions endpoint URL."""
+    return get('llm_base_url', 'https://integrate.api.nvidia.com/v1/chat/completions')
+
+
+def get_llm_key_env() -> str:
+    """Name of the environment variable holding the API key."""
+    return get('llm_api_key_env', 'NVIDIA_API_KEY')
+
+
+def get_llm_api_key() -> str:
+    """Read the API key from whichever env var the config points at."""
+    return os.getenv(get_llm_key_env(), '')
+
+
+def get_llm_model() -> str:
+    """Model identifier passed to the provider."""
+    return get('llm_model', 'deepseek-ai/deepseek-r1')
+
+
+def get_ocr_engine() -> str:
+    """Which OCR backend to use: 'tesseract' (local, free) or 'sarvam' (API)."""
+    return get('ocr_engine', 'tesseract')
 
 
 def get_sarvam_api_key() -> str:
@@ -157,16 +196,6 @@ def get_sarvam_api_key() -> str:
 
 
 def is_sarvam_ocr_enabled() -> bool:
-    """Check if Sarvam OCR is enabled in config and API key is available."""
-    return get('sarvam_ocr_enabled', False) and bool(get_sarvam_api_key())
-
-
-def get_sarvam_api_key() -> str:
-    """Get the Sarvam API key from environment."""
-    return os.getenv('SARVAM_API_KEY', '')
-
-
-def is_sarvam_enabled() -> bool:
     """Check if Sarvam OCR is enabled in config and API key is available."""
     return get('sarvam_ocr_enabled', False) and bool(get_sarvam_api_key())
 

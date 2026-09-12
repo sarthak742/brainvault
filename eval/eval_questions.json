@@ -1,0 +1,121 @@
+[
+  {
+    "id": 1,
+    "question": "What is the lifespan of a CFL bulb?",
+    "source_doc": "ee_handwritten_01.pdf",
+    "expected_pages": [4],
+    "answer_snippet": "6,000-10,000 hrs",
+    "type": "specific_term",
+    "note": "Exact figure in a handwritten table. BM25 should win this if OCR reads the digits correctly."
+  },
+  {
+    "id": 2,
+    "question": "How many hours does an LED last?",
+    "source_doc": "ee_handwritten_01.pdf",
+    "expected_pages": [4],
+    "answer_snippet": "over 25,000 hours",
+    "type": "specific_term"
+  },
+  {
+    "id": 3,
+    "question": "What principle does a Megger work on?",
+    "source_doc": "ee_handwritten_01.pdf",
+    "expected_pages": [1],
+    "answer_snippet": "electromagnetic attraction",
+    "type": "conceptual",
+    "note": "Page 1 is rotated 90 degrees. If this fails while others pass, OCR is not auto-rotating."
+  },
+  {
+    "id": 4,
+    "question": "Which law governs how a BLDC motor produces torque?",
+    "source_doc": "ee_handwritten_01.pdf",
+    "expected_pages": [3],
+    "answer_snippet": "Lorentz force law",
+    "type": "conceptual"
+  },
+  {
+    "id": 5,
+    "question": "What keeps the generator speed constant during an insulation test?",
+    "source_doc": "ee_handwritten_01.pdf",
+    "expected_pages": [1],
+    "answer_snippet": "centrifugal clutch",
+    "type": "conceptual"
+  },
+  {
+    "id": 6,
+    "question": "Which lighting type has both the longest lifespan and the lowest heat output?",
+    "source_doc": "ee_handwritten_01.pdf",
+    "expected_pages": [3, 4],
+    "answer_snippet": "LED",
+    "type": "multi_hop",
+    "note": "Requires two rows of a table that SPANS a page break. Chunk-boundary test."
+  },
+  {
+    "id": 7,
+    "question": "What are the three main components of a BLDC motor and what is the stator made of?",
+    "source_doc": "ee_handwritten_01.pdf",
+    "expected_pages": [2],
+    "answer_snippet": "stator, permanent magnet rotor, hall effect sensors; stacked steel laminations",
+    "type": "multi_hop"
+  },
+  {
+    "id": 8,
+    "question": "In the Megger diagram, which coil is connected in series with the resistance being measured?",
+    "source_doc": "ee_handwritten_01.pdf",
+    "expected_pages": [1],
+    "answer_snippet": "coil B",
+    "type": "diagram",
+    "note": "Labels sit spatially around a drawing, not in reading order. Expect OCR fragmentation."
+  },
+  {
+    "id": 9,
+    "question": "FILL IN: a question whose answer is ONLY in optical_fibre_notes.pdf",
+    "source_doc": "optical_fibre_notes.pdf",
+    "expected_pages": [],
+    "answer_snippet": "FILL IN",
+    "type": "specific_term",
+    "note": "Cross-document test. Lasers and Optical Fibre share vocabulary - verify the chunk comes from the RIGHT document."
+  },
+  {
+    "id": 10,
+    "question": "FILL IN: a question whose answer is ONLY in lasers_notes.pdf",
+    "source_doc": "lasers_notes.pdf",
+    "expected_pages": [],
+    "answer_snippet": "FILL IN",
+    "type": "conceptual",
+    "note": "The mirror of Q9. If Q9 and Q10 both retrieve from the same document, you have a separation problem."
+  },
+  {
+    "id": 11,
+    "question": "FILL IN: a question about a logic gate truth table",
+    "source_doc": "logic_gates.pdf",
+    "expected_pages": [],
+    "answer_snippet": "FILL IN",
+    "type": "specific_term",
+    "note": "This doc has image-only diagrams. Was failing silently before the per-page OCR fix."
+  },
+  {
+    "id": 12,
+    "question": "FILL IN: a question answerable only from green_chemistry.pdf",
+    "source_doc": "green_chemistry.pdf",
+    "expected_pages": [],
+    "answer_snippet": "FILL IN",
+    "type": "conceptual"
+  },
+  {
+    "id": 13,
+    "question": "How do you calculate power factor correction for an inductive load?",
+    "source_doc": null,
+    "expected_pages": [],
+    "type": "absent",
+    "note": "NOT in the corpus. System should return nothing above threshold. Tests the 'grounded' flag."
+  },
+  {
+    "id": 14,
+    "question": "What is the capital of Brazil?",
+    "source_doc": null,
+    "expected_pages": [],
+    "type": "absent",
+    "note": "Obviously out of domain. If this scores above threshold, the threshold is too low."
+  }
+]
