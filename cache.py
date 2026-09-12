@@ -37,27 +37,37 @@ class SemanticCache:
         self.max_size = max_size
         self._embedder = Embedder()
         self._vectors: List[np.ndarray] = []
-        self._entries: List[Tuple[str, Any]] = []   # (question, response)
+        self._entries: List[Tuple[str, str, Any]] = []   # (user_id, question, response)
         self._lock = threading.Lock()
 
-    def get(self, question: str) -> Optional[Any]:
-        """Return a cached response for a semantically-equivalent question, or None."""
+    def get(self, question: str, user_id: str = "default") -> Optional[Any]:
+        """Return a cached response for a semantically-equivalent question from the
+        SAME user, or None.
+
+        Scoping by user_id is a correctness requirement, not an optimization:
+        without it, one user's cached answer could be served to another user
+        asking a similar question -- a cross-tenant leak that bypasses the
+        retrieval-level isolation entirely.
+        """
         q = _normalize(self._embedder.embed_texts([question])[0])
         with self._lock:
-            if not self._vectors:
-                return None
-            sims = np.array([float(q @ v) for v in self._vectors])
-            best = int(sims.argmax())
-            if sims[best] >= self.threshold:
-                logger.info("Semantic cache HIT (sim=%.3f): %r", sims[best], question)
-                return self._entries[best][1]
+            best_sim, best_resp = -1.0, None
+            for vec, (uid, _q, resp) in zip(self._vectors, self._entries):
+                if uid != user_id:
+                    continue
+                sim = float(q @ vec)
+                if sim > best_sim:
+                    best_sim, best_resp = sim, resp
+            if best_resp is not None and best_sim >= self.threshold:
+                logger.info("Semantic cache HIT (sim=%.3f, user=%s): %r", best_sim, user_id, question)
+                return best_resp
         return None
 
-    def put(self, question: str, response: Any) -> None:
+    def put(self, question: str, response: Any, user_id: str = "default") -> None:
         q = _normalize(self._embedder.embed_texts([question])[0])
         with self._lock:
             self._vectors.append(q)
-            self._entries.append((question, response))
+            self._entries.append((user_id, question, response))
             if len(self._entries) > self.max_size:      # simple FIFO eviction
                 self._vectors.pop(0)
                 self._entries.pop(0)

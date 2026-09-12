@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -59,6 +59,7 @@ app.add_middleware(
 # --- Models ---
 class ChatRequest(BaseModel):
     question: str
+    user_id: str = "default"
 
 class ChatResponse(BaseModel):
     answer: str
@@ -110,13 +111,15 @@ async def serve_frontend():
     return HTMLResponse(content="<html><body><h1>Frontend not found</h1></body></html>", status_code=404)
 
 @app.post("/api/upload")
-async def upload_document(file: UploadFile = File(...)):
-    """Save the file and QUEUE indexing. Returns immediately with a task_id."""
+async def upload_document(file: UploadFile = File(...), user_id: str = Form("default")):
+    """Save the file under the user's folder and QUEUE indexing for that user."""
     allowed = {".pdf", ".txt", ".md"}
     ext = Path(file.filename).suffix.lower()
     if ext not in allowed:
         raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {allowed}")
-    file_path = DATA_DIR / file.filename
+    user_dir = DATA_DIR / user_id
+    user_dir.mkdir(parents=True, exist_ok=True)
+    file_path = user_dir / file.filename
     try:
         content = await file.read()
         with open(file_path, "wb") as f:
@@ -125,7 +128,7 @@ async def upload_document(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
 
-    task = index_document_task.delay(file.filename)
+    task = index_document_task.delay(file.filename, user_id)
     return {"message": f"File '{file.filename}' uploaded — indexing queued", "task_id": task.id}
 
 @app.get("/api/index-status/{task_id}")
@@ -151,11 +154,12 @@ async def metrics():
     return observability.summary()
 
 @app.get("/api/documents", response_model=List[DocumentInfo])
-async def list_documents():
+async def list_documents(user_id: str = "default"):
     documents = []
-    if not DATA_DIR.exists():
+    user_dir = DATA_DIR / user_id
+    if not user_dir.exists():
         return documents
-    for file_path in DATA_DIR.iterdir():
+    for file_path in user_dir.iterdir():
         if file_path.is_file():
             stat = file_path.stat()
             documents.append(DocumentInfo(
@@ -166,8 +170,8 @@ async def list_documents():
     return documents
 
 @app.delete("/api/documents/{filename}")
-async def delete_document(filename: str):
-    file_path = DATA_DIR / filename
+async def delete_document(filename: str, user_id: str = "default"):
+    file_path = DATA_DIR / user_id / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"Document '{filename}' not found")
     try:
@@ -183,12 +187,12 @@ async def chat(request: ChatRequest):
     if engine is None:
         raise HTTPException(status_code=400, detail="RAG system not initialized. Please upload documents first.")
 
-    # 1. Semantic cache: a similar question already answered? Skip the LLM.
+    # 1. Semantic cache: a similar question already answered FOR THIS USER? Skip the LLM.
     if _cache is not None:
-        cached = _cache.get(request.question)
+        cached = _cache.get(request.question, request.user_id)
         if cached is not None:
             observability.record({
-                "event": "query", "question": request.question,
+                "event": "query", "question": request.question, "user_id": request.user_id,
                 "grounded": cached.grounded, "num_sources": len(cached.sources),
                 "cache_hit": True, "latency_ms": 0.0,
             })
@@ -197,7 +201,7 @@ async def chat(request: ChatRequest):
     # 2. Cache miss: run the pipeline, timing it (this is the "trace").
     try:
         with observability.Timer() as t:
-            result = engine.generate_answer(request.question)
+            result = engine.generate_answer(request.question, user_id=request.user_id)
 
         sources = []
         if result.get("grounded") and result.get("citations"):
@@ -216,14 +220,14 @@ async def chat(request: ChatRequest):
 
         # 3. Observability: one metrics line per query.
         observability.record({
-            "event": "query", "question": request.question,
+            "event": "query", "question": request.question, "user_id": request.user_id,
             "grounded": response.grounded, "num_sources": len(sources),
             "cache_hit": False, "latency_ms": round(t.ms, 1),
         })
 
-        # 4. Cache the fresh answer for next time.
+        # 4. Cache the fresh answer for next time (scoped to this user).
         if _cache is not None:
-            _cache.put(request.question, response)
+            _cache.put(request.question, response, request.user_id)
 
         return response
     except Exception as e:

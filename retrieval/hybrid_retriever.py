@@ -58,7 +58,7 @@ class HybridRetriever:
             
         return normalized
 
-    def retrieve(self, query: str, k: int = 5) -> List[Tuple[float, ChunkRecord]]:
+    def retrieve(self, query: str, k: int = 5, user_id: str = None) -> List[Tuple[float, ChunkRecord]]:
         """
         Execute Hybrid Retrieval:
         1. Fetch dense & sparse results (oversampling k*2).
@@ -82,8 +82,8 @@ class HybridRetriever:
         the corpus actually contains an answer.
         """
         # 1. Fetch Candidates (Oversample to allow effective merging)
-        dense_res = self.dense.retrieve(query, k=k*2)
-        sparse_res = self.sparse.retrieve(query, k=k*2)
+        dense_res = self.dense.retrieve(query, k=k*2, user_id=user_id)
+        sparse_res = self.sparse.retrieve(query, k=k*2, user_id=user_id)
 
         if not dense_res and not sparse_res:
             logger.warning("HybridRetriever: Both retrievers returned empty results.")

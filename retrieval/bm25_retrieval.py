@@ -74,10 +74,13 @@ class BM25Retriever:
         raw = f"{chunk.get('source', '')}|{chunk.get('text', '')}"
         return hashlib.md5(raw.encode()).hexdigest()
 
-    def retrieve(self, query: str, k: int = 5) -> List[Tuple[float, ChunkRecord]]:
+    def retrieve(self, query: str, k: int = 5, user_id: str = None) -> List[Tuple[float, ChunkRecord]]:
         """
         Retrieve chunks based on keyword overlap.
-        
+
+        If user_id is given, only that user's chunks are considered (multi-tenant
+        isolation). Chunks with no user_id count as the 'default' tenant.
+
         Returns:
             List of (raw_score, chunk_record), sorted by score descending.
         """
@@ -96,11 +99,15 @@ class BM25Retriever:
             logger.error(f"CRITICAL: BM25 score count ({len(scores)}) != corpus size ({self._corpus_size})")
             return []
 
-        # Filter & Sort
+        # Filter (by score, and by tenant if requested) & Sort
         scored_chunks = []
         for i, score in enumerate(scores):
-            if score > 0:
-                scored_chunks.append((float(score), self.chunks[i]))
+            if score <= 0:
+                continue
+            chunk = self.chunks[i]
+            if user_id is not None and chunk.get("user_id", "default") != user_id:
+                continue
+            scored_chunks.append((float(score), chunk))
         
         scored_chunks.sort(key=lambda x: x[0], reverse=True)
         

@@ -43,19 +43,20 @@ class Retriever:
                 alpha=self.alpha
             )
 
-    def retrieve(self, query: str, k: int = 5) -> List[Tuple[float, ChunkRecord]]:
+    def retrieve(self, query: str, k: int = 5, user_id: str = None) -> List[Tuple[float, ChunkRecord]]:
         """
         Find most relevant chunks for a query.
         Routes to Hybrid if enabled, otherwise Standard Dense.
+        If user_id is given, retrieval is restricted to that user's chunks.
         """
         if self.hybrid_runner:
             # Route through Hybrid Fusion
-            return self.hybrid_runner.retrieve(query, k=k)
+            return self.hybrid_runner.retrieve(query, k=k, user_id=user_id)
         else:
             # Fallback to pure Dense (Legacy Path)
-            return self._retrieve_dense(query, k=k)
+            return self._retrieve_dense(query, k=k, user_id=user_id)
 
-    def _retrieve_dense(self, query: str, k: int = 5) -> List[Tuple[float, ChunkRecord]]:
+    def _retrieve_dense(self, query: str, k: int = 5, user_id: str = None) -> List[Tuple[float, ChunkRecord]]:
         """
         Internal implementation of dense vector search.
         """
@@ -66,8 +67,8 @@ class Retriever:
         # 1. Embed the query
         query_vector = self.embedder.embed_query(query)
 
-        # 2. Search the index
-        results = self.store.search(query_vector, k=k)
+        # 2. Search the index (tenant-scoped when user_id is given)
+        results = self.store.search(query_vector, k=k, user_id=user_id)
 
         # 3. Sort (Safety measure)
         results.sort(key=lambda x: x[0], reverse=True)
@@ -82,5 +83,5 @@ class _DenseDelegate:
     def __init__(self, parent: Retriever):
         self.parent = parent
 
-    def retrieve(self, query: str, k: int = 5) -> List[Tuple[float, ChunkRecord]]:
-        return self.parent._retrieve_dense(query, k=k)
+    def retrieve(self, query: str, k: int = 5, user_id: str = None) -> List[Tuple[float, ChunkRecord]]:
+        return self.parent._retrieve_dense(query, k=k, user_id=user_id)

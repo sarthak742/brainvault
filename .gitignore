@@ -10,3 +10,4 @@ eval/results.json
 .env.txt
 .env.*
 !.env.example
+*.log

@@ -63,18 +63,19 @@ def _load_or_new_store(dim: int) -> VectorStore:
     return VectorStore(dim=dim)
 
 
-def _remove_existing_chunks(store: VectorStore, filename: str) -> None:
-    """Idempotency guard.
+def _remove_existing_chunks(store: VectorStore, filename: str, user_id: str = "default") -> None:
+    """Idempotency guard, scoped to a single tenant.
 
     A queued job can run more than once (a retry after a crash, or the user
     re-uploading the same filename). Because our indexing APPENDS, running it
     twice would add the document's chunks twice. So before adding, we drop any
-    chunks already stored for this filename. Re-running now REPLACES instead of
-    duplicating — which is exactly what 'at-least-once' execution needs to be safe.
+    chunks already stored for THIS user's copy of this filename. Matching on
+    user_id too means user A re-uploading "notes.pdf" never touches user B's.
     """
     ids = [
         i for i, chunk in store.metadata.items()
         if Path(chunk.get("source", "")).name == filename
+        and chunk.get("user_id", "default") == user_id
     ]
     if ids:
         store.index.remove_ids(np.array(ids, dtype=np.int64))
@@ -83,16 +84,16 @@ def _remove_existing_chunks(store: VectorStore, filename: str) -> None:
         logger.info("Removed %d existing chunks for '%s' (re-index).", len(ids), filename)
 
 
-def index_single_document(filename: str, progress_cb: ProgressCb = None) -> dict:
-    """Incrementally index ONE document. Safe to run more than once (idempotent)."""
+def index_single_document(filename: str, user_id: str = "default", progress_cb: ProgressCb = None) -> dict:
+    """Incrementally index ONE document for ONE user. Idempotent per (user, file)."""
 
     def report(done: int, total: int, msg: str) -> None:
-        logger.info("[index %s] %s (%d/%d)", filename, msg, done, total)
+        logger.info("[index %s/%s] %s (%d/%d)", user_id, filename, msg, done, total)
         if progress_cb:
             progress_cb(done, total, msg)
 
     report(0, 4, f"Reading {filename}")
-    file_path = DATA_DIR / filename
+    file_path = DATA_DIR / user_id / filename
     records = _extract_records(file_path)
     if not records:
         report(4, 4, f"No text extracted from {filename}")
@@ -102,6 +103,9 @@ def index_single_document(filename: str, progress_cb: ProgressCb = None) -> dict
     chunks = chunk_documents(
         records, chunk_size=get_chunk_size(), overlap=get_chunk_overlap()
     )
+    # Tag every chunk with its owner so retrieval can filter by tenant.
+    for c in chunks:
+        c["user_id"] = user_id
 
     report(2, 4, f"Embedding {len(chunks)} chunks")
     embedder = Embedder()
@@ -109,8 +113,8 @@ def index_single_document(filename: str, progress_cb: ProgressCb = None) -> dict
 
     report(3, 4, "Updating index")
     store = _load_or_new_store(dim=vectors.shape[1])
-    _remove_existing_chunks(store, filename)   # idempotent re-index
-    store.add(chunks, vectors)                 # append only the new chunks
+    _remove_existing_chunks(store, filename, user_id)   # idempotent re-index
+    store.add(chunks, vectors)                          # append only the new chunks
     store.save(str(INDEX_PATH), str(META_PATH))
 
     report(4, 4, f"Indexed {filename}")
@@ -118,15 +122,31 @@ def index_single_document(filename: str, progress_cb: ProgressCb = None) -> dict
 
 
 def full_rebuild_index(progress_cb: ProgressCb = None) -> dict:
-    """Rebuild the whole index from every document in DATA_DIR (used after a delete)."""
+    """Rebuild the whole multi-tenant index from every user's documents on disk.
+
+    Documents live under DATA_DIR/<user_id>/<file>, so each chunk is tagged with
+    the user_id taken from its subdirectory — isolation survives a full rebuild.
+    Any files sitting directly in DATA_DIR (pre-multi-tenant) are treated as the
+    'default' tenant.
+    """
 
     def report(done: int, total: int, msg: str) -> None:
         logger.info("[rebuild] %s (%d/%d)", msg, done, total)
         if progress_cb:
             progress_cb(done, total, msg)
 
-    files = load_documents(DATA_DIR)
-    if not files:
+    # Collect (user_id, file_path) pairs across all tenants.
+    jobs = []
+    if DATA_DIR.exists():
+        for entry in DATA_DIR.iterdir():
+            if entry.is_dir():
+                for f in entry.iterdir():
+                    if f.is_file():
+                        jobs.append((entry.name, f))
+            elif entry.is_file():
+                jobs.append(("default", entry))
+
+    if not jobs:
         # Nothing left (e.g. the last doc was deleted) — clear the index.
         if INDEX_PATH.exists():
             INDEX_PATH.unlink()
@@ -135,34 +155,37 @@ def full_rebuild_index(progress_cb: ProgressCb = None) -> dict:
         report(1, 1, "No documents — index cleared")
         return {"message": "No documents — index cleared"}
 
-    total = len(files) + 1
-    all_records: List = []
-    for idx, file_path in enumerate(files, start=1):
+    total = len(jobs) + 1
+    all_chunks: List = []
+    for idx, (uid, file_path) in enumerate(jobs, start=1):
         report(idx, total, f"Reading {file_path.name}")
         try:
             records = _extract_records(file_path)
         except Exception as e:
             logger.error("Failed to process %s: %s", file_path.name, e)
             continue
-        if records:
-            all_records.extend(records)
+        if not records:
+            continue
+        chunks = chunk_documents(
+            records, chunk_size=get_chunk_size(), overlap=get_chunk_overlap()
+        )
+        for c in chunks:
+            c["user_id"] = uid          # tag by the tenant that owns the folder
+        all_chunks.extend(chunks)
 
-    if not all_records:
+    if not all_chunks:
         report(total, total, "No text extracted")
         return {"message": "No text extracted"}
 
-    chunks = chunk_documents(
-        all_records, chunk_size=get_chunk_size(), overlap=get_chunk_overlap()
-    )
     embedder = Embedder()
-    vectors = embedder.embed_texts([c["text"] for c in chunks])
+    vectors = embedder.embed_texts([c["text"] for c in all_chunks])
 
     store = VectorStore(dim=vectors.shape[1])   # fresh store for a full rebuild
-    store.add(chunks, vectors)
+    store.add(all_chunks, vectors)
     store.save(str(INDEX_PATH), str(META_PATH))
 
     report(total, total, "Index rebuilt")
-    return {"message": "Index rebuilt", "chunks": len(chunks)}
+    return {"message": "Index rebuilt", "chunks": len(all_chunks)}
 
 
 def build_components():

@@ -67,9 +67,17 @@ class VectorStore:
         self.next_id += count
         logger.info(f"Added {count} vectors. Next ID: {self.next_id}")
 
-    def search(self, query_vec: np.ndarray, k: int = 5) -> List[Tuple[float, ChunkRecord]]:
+    def search(self, query_vec: np.ndarray, k: int = 5, user_id: str = None) -> List[Tuple[float, ChunkRecord]]:
         """
         Search for most similar chunks.
+
+        If user_id is given, results are restricted to that user's chunks
+        (multi-tenant isolation). Because this is a flat, exact index, we search
+        the whole index and keep only the user's chunks before taking the top k
+        -- correct no matter how different users' vectors are interleaved.
+        Chunks with no user_id are treated as the 'default' tenant, so indexes
+        built before multi-tenancy keep working.
+
         Returns: List of (score, ChunkRecord)
         """
         # 1. Guard Clauses
@@ -81,24 +89,27 @@ class VectorStore:
 
         # 2. Reshape for FAISS (needs 1, dim)
         query_vec = query_vec.reshape(1, -1).astype(np.float32)
-        
-        # 3. Search
-        # D = Distances (Scores), I = Indices (IDs)
-        D, I = self.index.search(query_vec, k)
-        
-        # 4. Map back to Chunks
+
+        # 3. Search. When filtering by tenant we must over-fetch, because the
+        # global top-k could be entirely other users' chunks. On a flat index,
+        # searching all vectors is the same O(n) cost as any search.
+        search_k = self.index.ntotal if user_id is not None else k
+        D, I = self.index.search(query_vec, search_k)
+
+        # 4. Map back to Chunks (filtering by tenant if requested)
         results = []
-        # I[0] contains the IDs for the first (and only) query vector
         for j, idx in enumerate(I[0]):
             if idx == -1:
-                continue 
-                
-            if idx in self.metadata:
-                score = float(D[0][j])
-                record = self.metadata[idx]
-                results.append((score, record))
-            else:
+                continue
+            if idx not in self.metadata:
                 logger.error(f"CRITICAL: Index {idx} found in FAISS but missing in Metadata!")
+                continue
+            record = self.metadata[idx]
+            if user_id is not None and record.get("user_id", "default") != user_id:
+                continue
+            results.append((float(D[0][j]), record))
+            if user_id is not None and len(results) >= k:
+                break
 
         return results
 

@@ -35,8 +35,8 @@ celery_app.conf.update(
 
 
 @celery_app.task(bind=True)
-def index_document_task(self, filename: str) -> dict:
-    """Index one uploaded document, reporting progress as it goes.
+def index_document_task(self, filename: str, user_id: str = "default") -> dict:
+    """Index one user's uploaded document, reporting progress as it goes.
 
     `self.update_state(...)` writes progress into Redis. The web server reads it
     back through /api/index-status/<task_id> to drive a progress bar.
@@ -47,7 +47,7 @@ def index_document_task(self, filename: str) -> dict:
             meta={"done": done, "total": total, "message": message},
         )
 
-    return indexing.index_single_document(filename, progress_cb=progress)
+    return indexing.index_single_document(filename, user_id=user_id, progress_cb=progress)
 
 
 @celery_app.task(bind=True)

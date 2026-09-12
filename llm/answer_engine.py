@@ -109,6 +109,7 @@ class AnswerEngine:
         score_threshold: float = 0.25,
         grounding_threshold: float = None,
         max_context_chars: int = 10_000,
+        user_id: str = "default",
     ) -> AnswerResult:
         """
         End-to-end RAG generation with optional self-reflection, safety guards,
@@ -121,7 +122,7 @@ class AnswerEngine:
         reflection: dict = {"enabled": bool(self.grader or self.critic)}
 
         # 1. Retrieve (with optional grading + query-rewrite retry).
-        working_results, retrieval_trail = self._retrieve_with_reflection(query, k)
+        working_results, retrieval_trail = self._retrieve_with_reflection(query, k, user_id)
         reflection["retrieval"] = retrieval_trail
 
         # 2. Decide whether the corpus can answer at all.
@@ -191,7 +192,7 @@ class AnswerEngine:
     # ---------------------------------------------------------
 
     def _retrieve_with_reflection(
-        self, query: str, k: int
+        self, query: str, k: int, user_id: str = "default"
     ) -> Tuple[List[Tuple[float, ChunkRecord]], dict]:
         """
         Retrieve candidates. If a grader is wired in, grade relevance; if the
@@ -200,7 +201,7 @@ class AnswerEngine:
         """
         trail: dict = {"attempts": [], "rewritten_query": None, "graded": bool(self.grader)}
 
-        raw = self.retriever.retrieve(query, k=k)
+        raw = self.retriever.retrieve(query, k=k, user_id=user_id)
 
         if not self.grader:
             # Base behaviour: no grading, use raw candidates.
@@ -222,7 +223,7 @@ class AnswerEngine:
             new_query = self.query_rewriter.rewrite(query)
             if new_query and new_query != query:
                 trail["rewritten_query"] = new_query
-                raw2 = self.retriever.retrieve(new_query, k=k)
+                raw2 = self.retriever.retrieve(new_query, k=k, user_id=user_id)
                 grade2 = self.grader.grade(new_query, raw2)
                 trail["attempts"].append(
                     {"query": new_query, "candidates": len(raw2),
