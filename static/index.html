@@ -1,1006 +1,676 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RAG Second Brain</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        :root {
-            --bg-dark: #0a0a0f;
-            --bg-card: rgba(255, 255, 255, 0.03);
-            --bg-card-hover: rgba(255, 255, 255, 0.06);
-            --border-subtle: rgba(255, 255, 255, 0.08);
-            --text-primary: #ffffff;
-            --text-secondary: rgba(255, 255, 255, 0.6);
-            --text-muted: rgba(255, 255, 255, 0.4);
-            --accent-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f97316 100%);
-            --accent-purple: #667eea;
-            --accent-orange: #f97316;
-            --accent-pink: #ec4899;
-            --glass-bg: rgba(255, 255, 255, 0.05);
-            --glass-border: rgba(255, 255, 255, 0.1);
-            --success: #10b981;
-            --danger: #ef4444;
-        }
-
-        body {
-            font-family: 'Outfit', sans-serif;
-            background: var(--bg-dark);
-            color: var(--text-primary);
-            min-height: 100vh;
-            overflow: hidden;
-        }
-
-        /* Animated background */
-        body::before {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background:
-                radial-gradient(ellipse at 20% 20%, rgba(102, 126, 234, 0.15) 0%, transparent 50%),
-                radial-gradient(ellipse at 80% 80%, rgba(249, 115, 22, 0.12) 0%, transparent 50%),
-                radial-gradient(ellipse at 50% 50%, rgba(236, 72, 153, 0.08) 0%, transparent 60%);
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        .container {
-            display: flex;
-            height: 100vh;
-            position: relative;
-            z-index: 1;
-        }
-
-        /* Sidebar */
-        .sidebar {
-            width: 320px;
-            background: var(--glass-bg);
-            border-right: 1px solid var(--glass-border);
-            display: flex;
-            flex-direction: column;
-            backdrop-filter: blur(20px);
-        }
-
-        .sidebar-header {
-            padding: 24px;
-            border-bottom: 1px solid var(--glass-border);
-        }
-
-        .logo {
-            font-size: 1.5rem;
-            font-weight: 700;
-            background: var(--accent-gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin-bottom: 4px;
-        }
-
-        .logo-subtitle {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
-
-        /* Upload Area */
-        .upload-area {
-            padding: 20px;
-            border-bottom: 1px solid var(--glass-border);
-        }
-
-        .upload-btn {
-            width: 100%;
-            padding: 14px 20px;
-            background: var(--accent-gradient);
-            border: none;
-            border-radius: 12px;
-            color: white;
-            font-family: 'Outfit', sans-serif;
-            font-size: 0.95rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-
-        .upload-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
-        }
-
-        .upload-btn svg {
-            width: 20px;
-            height: 20px;
-        }
-
-        .file-input {
-            display: none;
-        }
-
-        /* Drop Zone */
-        .drop-zone {
-            margin-top: 12px;
-            padding: 24px;
-            border: 2px dashed var(--glass-border);
-            border-radius: 12px;
-            text-align: center;
-            transition: all 0.3s ease;
-            background: rgba(102, 126, 234, 0.02);
-        }
-
-        .drop-zone.drag-over {
-            border-color: var(--accent-purple);
-            background: rgba(102, 126, 234, 0.1);
-        }
-
-        .drop-zone-text {
-            color: var(--text-muted);
-            font-size: 0.85rem;
-        }
-
-        /* Documents List */
-        .documents-section {
-            flex: 1;
-            overflow-y: auto;
-            padding: 16px;
-        }
-
-        .section-title {
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            color: var(--text-muted);
-            margin-bottom: 12px;
-            padding: 0 8px;
-        }
-
-        .document-list {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .document-item {
-            display: flex;
-            align-items: center;
-            padding: 12px 14px;
-            background: var(--bg-card);
-            border: 1px solid var(--border-subtle);
-            border-radius: 10px;
-            transition: all 0.2s ease;
-            cursor: default;
-        }
-
-        .document-item:hover {
-            background: var(--bg-card-hover);
-            border-color: var(--glass-border);
-        }
-
-        .doc-icon {
-            width: 36px;
-            height: 36px;
-            background: var(--accent-gradient);
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 12px;
-            flex-shrink: 0;
-        }
-
-        .doc-icon svg {
-            width: 18px;
-            height: 18px;
-            color: white;
-        }
-
-        .doc-info {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .doc-name {
-            font-size: 0.9rem;
-            font-weight: 500;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            color: var(--text-primary);
-        }
-
-        .doc-meta {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            margin-top: 2px;
-        }
-
-        .delete-btn {
-            width: 28px;
-            height: 28px;
-            background: transparent;
-            border: none;
-            border-radius: 6px;
-            color: var(--text-muted);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s ease;
-            opacity: 0;
-        }
-
-        .document-item:hover .delete-btn {
-            opacity: 1;
-        }
-
-        .delete-btn:hover {
-            background: rgba(239, 68, 68, 0.15);
-            color: var(--danger);
-        }
-
-        .delete-btn svg {
-            width: 16px;
-            height: 16px;
-        }
-
-        .empty-docs {
-            text-align: center;
-            padding: 40px 20px;
-            color: var(--text-muted);
-        }
-
-        .empty-docs svg {
-            width: 48px;
-            height: 48px;
-            margin-bottom: 12px;
-            opacity: 0.3;
-        }
-
-        .empty-docs p {
-            font-size: 0.9rem;
-        }
-
-        /* Status Bar */
-        .status-bar {
-            padding: 12px 16px;
-            background: var(--bg-card);
-            border-top: 1px solid var(--glass-border);
-            font-size: 0.8rem;
-            color: var(--text-muted);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .status-indicator {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--success);
-        }
-
-        .status-indicator.rebuilding {
-            background: var(--accent-orange);
-            animation: pulse 1.5s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
-
-        /* Main Chat Area */
-        .main-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background: transparent;
-        }
-
-        .chat-header {
-            padding: 20px 32px;
-            border-bottom: 1px solid var(--glass-border);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .chat-title {
-            font-size: 1.25rem;
-            font-weight: 600;
-        }
-
-        .header-status {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-        }
-
-        /* Messages */
-        .chat-messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 24px 32px;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-
-        .message {
-            max-width: 80%;
-            animation: fadeIn 0.3s ease;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .message.user {
-            align-self: flex-end;
-        }
-
-        .message.ai {
-            align-self: flex-start;
-        }
-
-        .message-bubble {
-            padding: 14px 18px;
-            border-radius: 18px;
-            line-height: 1.6;
-        }
-
-        .message.user .message-bubble {
-            background: var(--accent-gradient);
-            border-bottom-right-radius: 4px;
-        }
-
-        .message.ai .message-bubble {
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
-            border-bottom-left-radius: 4px;
-        }
-
-        .message-label {
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 6px;
-            color: var(--text-muted);
-        }
-
-        .message.user .message-label {
-            text-align: right;
-        }
-
-        /* Sources */
-        .sources {
-            margin-top: 12px;
-            padding: 12px 16px;
-            background: rgba(16, 185, 129, 0.08);
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            border-radius: 10px;
-        }
-
-        .sources-title {
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: var(--success);
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .source-item {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-            padding: 6px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .source-item:last-child {
-            border-bottom: none;
-        }
-
-        .source-score {
-            color: var(--accent-purple);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.75rem;
-        }
-
-        /* Loading */
-        .loading-message {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 14px 18px;
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
-            border-radius: 18px;
-            border-bottom-left-radius: 4px;
-            max-width: 80%;
-            align-self: flex-start;
-        }
-
-        .spinner {
-            width: 20px;
-            height: 20px;
-            border: 2px solid var(--glass-border);
-            border-top-color: var(--accent-purple);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .loading-text {
-            color: var(--text-muted);
-            font-size: 0.9rem;
-        }
-
-        /* Input Area */
-        .chat-input-area {
-            padding: 20px 32px;
-            border-top: 1px solid var(--glass-border);
-        }
-
-        .chat-input-wrapper {
-            display: flex;
-            gap: 12px;
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
-            border-radius: 16px;
-            padding: 8px;
-            transition: all 0.3s ease;
-        }
-
-        .chat-input-wrapper:focus-within {
-            border-color: var(--accent-purple);
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
-        }
-
-        .chat-input {
-            flex: 1;
-            background: transparent;
-            border: none;
-            color: var(--text-primary);
-            font-family: 'Outfit', sans-serif;
-            font-size: 1rem;
-            padding: 10px 14px;
-            outline: none;
-        }
-
-        .chat-input::placeholder {
-            color: var(--text-muted);
-        }
-
-        .send-btn {
-            width: 44px;
-            height: 44px;
-            background: var(--accent-gradient);
-            border: none;
-            border-radius: 12px;
-            color: white;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s ease;
-        }
-
-        .send-btn:hover:not(:disabled) {
-            transform: scale(1.05);
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        .send-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .send-btn svg {
-            width: 20px;
-            height: 20px;
-        }
-
-        /* Welcome Message */
-        .welcome-message {
-            text-align: center;
-            padding: 60px 40px;
-            max-width: 600px;
-            margin: 0 auto;
-        }
-
-        .welcome-icon {
-            width: 80px;
-            height: 80px;
-            background: var(--accent-gradient);
-            border-radius: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 24px;
-            animation: float 3s ease-in-out infinite;
-        }
-
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-        }
-
-        .welcome-icon svg {
-            width: 40px;
-            height: 40px;
-            color: white;
-        }
-
-        .welcome-title {
-            font-size: 2rem;
-            font-weight: 700;
-            margin-bottom: 12px;
-            background: var(--accent-gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .welcome-subtitle {
-            color: var(--text-secondary);
-            font-size: 1.1rem;
-            line-height: 1.6;
-        }
-
-        /* Responsive */
-        @media (max-width: 900px) {
-            .sidebar {
-                width: 280px;
-            }
-        }
-
-        @media (max-width: 768px) {
-            .container {
-                flex-direction: column;
-            }
-
-            .sidebar {
-                width: 100%;
-                height: auto;
-                max-height: 40vh;
-                border-right: none;
-                border-bottom: 1px solid var(--glass-border);
-            }
-
-            .chat-messages {
-                padding: 16px;
-            }
-
-            .chat-input-area {
-                padding: 16px;
-            }
-
-            .chat-header {
-                padding: 16px;
-            }
-
-            .message {
-                max-width: 90%;
-            }
-        }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local RAG Assistant</title>
+<style>
+  :root{
+    --bg:#eef1f6; --panel:#ffffff; --ink:#1f2733; --muted:#6b7683; --faint:#94a0ad;
+    --line:#e5e9f0; --line-soft:#eef1f6;
+    --blue:#3b6ef5; --blue-soft:#eaf0ff;
+    --green:#16a34a; --green-soft:#e7f6ec;
+    --amber:#d97706; --amber-soft:#fdf1e3;
+    --red:#dc2626; --red-soft:#fdeaea;
+    --purple:#7c3aed; --purple-soft:#f1eafe;
+    --radius:14px; --radius-sm:10px;
+    --shadow:0 1px 2px rgba(20,30,50,.04), 0 6px 20px rgba(20,30,50,.05);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{display:flex; flex-direction:column; height:100vh; padding:14px; gap:14px}
+
+  /* Header */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:12px 18px; box-shadow:var(--shadow);
+  }
+  .brand{display:flex; align-items:center; gap:12px}
+  .logo{width:38px; height:38px; border-radius:10px; background:linear-gradient(135deg,#3b6ef5,#6a5bf5);
+    display:grid; place-items:center; color:#fff; font-size:20px}
+  .brand h1{font-size:16px; margin:0; font-weight:650}
+  .brand p{margin:0; font-size:12px; color:var(--muted)}
+  .topright{display:flex; align-items:center; gap:16px}
+  .status{display:flex; align-items:center; gap:8px; text-align:right}
+  .status .dot{width:9px; height:9px; border-radius:50%; background:var(--faint)}
+  .status.online .dot{background:var(--green); box-shadow:0 0 0 3px var(--green-soft)}
+  .status.offline .dot{background:var(--red); box-shadow:0 0 0 3px var(--red-soft)}
+  .status .label{font-size:12.5px; font-weight:600; line-height:1.15}
+  .status .sub{font-size:11px; color:var(--muted)}
+  .iconbtn{width:34px; height:34px; border-radius:9px; border:1px solid var(--line);
+    background:#fff; display:grid; place-items:center; color:var(--muted); cursor:pointer}
+  .avatar{width:34px; height:34px; border-radius:9px; background:var(--blue); color:#fff;
+    display:grid; place-items:center; font-weight:600}
+
+  /* Layout */
+  .cols{display:grid; grid-template-columns:320px 1fr 300px; gap:14px; flex:1; min-height:0}
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    display:flex; flex-direction:column; min-height:0; box-shadow:var(--shadow); overflow:hidden}
+  .panel-head{display:flex; align-items:center; justify-content:space-between;
+    padding:14px 16px; border-bottom:1px solid var(--line-soft)}
+  .panel-head .title{display:flex; align-items:center; gap:9px; font-weight:650; font-size:15px}
+  .panel-head .title .ic{color:var(--blue)}
+  .badge{font-size:12px; color:var(--muted); background:var(--line-soft); padding:2px 9px; border-radius:20px}
+  .panel-body{padding:14px 16px; overflow:auto; flex:1; min-height:0}
+  .linkbtn{display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--muted);
+    background:none; border:none; cursor:pointer; padding:4px 6px; border-radius:7px}
+  .linkbtn:hover{background:var(--line-soft); color:var(--ink)}
+
+  /* Dropzone */
+  .drop{border:2px dashed #c6d2e6; border-radius:var(--radius-sm); background:#f7f9fd;
+    padding:22px 14px; text-align:center; cursor:pointer; transition:.15s}
+  .drop:hover,.drop.drag{border-color:var(--blue); background:var(--blue-soft)}
+  .drop .cloud{font-size:26px}
+  .drop .big{font-weight:600; margin-top:6px}
+  .drop .small{font-size:12px; color:var(--muted); margin-top:2px}
+  .pills{display:flex; gap:6px; justify-content:center; margin-top:10px}
+  .pill{font-size:11px; color:var(--blue); background:#fff; border:1px solid #d6e0f5; padding:2px 10px; border-radius:20px}
+
+  /* Indexing card */
+  .indexing{margin-top:12px; border:1px solid var(--line); border-radius:var(--radius-sm); padding:12px}
+  .indexing .row{display:flex; align-items:center; gap:9px}
+  .fileicon{width:30px; height:30px; border-radius:7px; display:grid; place-items:center;
+    font-size:10px; font-weight:700; color:#fff; flex:none}
+  .fi-pdf{background:#e4572e} .fi-md{background:#0ea5a4} .fi-txt{background:#64748b}
+  .indexing .name{font-weight:600; font-size:13px}
+  .indexing .spin{margin-left:auto; color:var(--blue)}
+  .indexing .desc{font-size:12px; color:var(--muted); margin:8px 0 8px}
+  .pbar{height:7px; background:var(--line-soft); border-radius:6px; overflow:hidden}
+  .pbar > i{display:block; height:100%; width:0%; background:linear-gradient(90deg,#3b6ef5,#6a5bf5); transition:width .3s}
+  .pcount{font-size:11px; color:var(--muted); text-align:right; margin-top:5px}
+
+  /* Docs list */
+  .subhead{display:flex; align-items:center; justify-content:space-between; margin:16px 0 8px}
+  .subhead h3{font-size:13px; margin:0; color:var(--ink)}
+  .sortsel{font-size:12px; color:var(--muted); border:1px solid var(--line); background:#fff;
+    border-radius:7px; padding:3px 6px}
+  .doc{display:flex; align-items:center; gap:10px; padding:9px 6px; border-radius:9px}
+  .doc:hover{background:var(--line-soft)}
+  .doc .meta{min-width:0}
+  .doc .meta .n{font-weight:600; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .doc .meta .s{font-size:11.5px; color:var(--muted)}
+  .del{margin-left:auto; display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--red);
+    background:var(--red-soft); border:none; border-radius:7px; padding:5px 9px; cursor:pointer; flex:none}
+  .del:hover{filter:brightness(.97)}
+  .del[disabled]{opacity:.5; cursor:default}
+
+  .infobox{margin-top:14px; display:flex; gap:9px; background:#f7f9fd; border:1px solid var(--line-soft);
+    border-radius:var(--radius-sm); padding:11px; font-size:12px; color:var(--muted)}
+  .banner{margin-top:12px; display:flex; align-items:center; gap:9px; background:var(--red-soft);
+    border:1px solid #f6cccc; color:#a52020; border-radius:var(--radius-sm); padding:10px 12px; font-size:12.5px}
+  .banner button{margin-left:auto; border:none; background:none; color:#a52020; cursor:pointer; font-size:14px}
+  .empty{color:var(--faint); font-size:12.5px; text-align:center; padding:14px 4px}
+
+  /* Chat */
+  .chat-body{display:flex; flex-direction:column; gap:14px}
+  .chat-hint{background:var(--blue-soft); border:1px solid #d9e4ff; border-radius:var(--radius-sm);
+    text-align:center; padding:14px}
+  .chat-hint .t{font-weight:600; color:#2a4bb5}
+  .chat-hint .s{font-size:12.5px; color:#5b6b9a; margin-top:3px}
+  .msg{display:flex; gap:10px; max-width:86%}
+  .msg.user{align-self:flex-end; flex-direction:row-reverse}
+  .bot{width:30px; height:30px; border-radius:8px; background:var(--blue-soft); color:var(--blue);
+    display:grid; place-items:center; flex:none}
+  .bubble{background:#f4f6fa; border:1px solid var(--line); border-radius:12px; padding:10px 13px}
+  .msg.user .bubble{background:#e8effe; border-color:#d6e2fb}
+  .bubble .time{font-size:10.5px; color:var(--faint); margin-top:6px}
+  .refusal{background:var(--red-soft); border:1px solid #f4cccc; border-radius:12px; padding:11px 13px}
+  .refusal .head{display:flex; align-items:center; gap:7px; color:#b4472d; font-weight:600; font-size:13px}
+  .refusal .body{margin-top:5px; color:#8a3b28}
+
+  .sources{margin-top:10px}
+  .sources > summary{cursor:pointer; font-size:12.5px; color:var(--muted); list-style:none; display:flex; align-items:center; gap:6px}
+  .sources > summary::-webkit-details-marker{display:none}
+  .sources > summary .chev{transition:.15s}
+  .sources[open] > summary .chev{transform:rotate(90deg)}
+  .srcgrid{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:9px}
+  .srccard{border:1px solid var(--line); border-radius:9px; padding:9px; background:#fff}
+  .srccard .top{display:flex; align-items:center; gap:7px}
+  .srccard .top .lbl{font-size:11.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .srccard .score{margin-left:auto; font-size:10px; color:var(--muted); background:var(--line-soft); padding:1px 6px; border-radius:10px; flex:none}
+  .srccard .snip{font-size:11.5px; color:var(--muted); margin-top:6px}
+  .thinking{display:flex; gap:10px; align-items:center; color:var(--muted); font-size:13px}
+  .dots{display:inline-flex; gap:3px}
+  .dots i{width:5px; height:5px; border-radius:50%; background:var(--faint); animation:blink 1.2s infinite}
+  .dots i:nth-child(2){animation-delay:.2s} .dots i:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,60%,100%{opacity:.25} 30%{opacity:1}}
+
+  .composer{border-top:1px solid var(--line-soft); padding:12px 16px}
+  .composer .row{display:flex; align-items:center; gap:9px}
+  .composer input[type=text]{flex:1; border:1px solid var(--line); border-radius:10px; padding:11px 12px; font-size:14px; outline:none}
+  .composer input[type=text]:focus{border-color:var(--blue); box-shadow:0 0 0 3px var(--blue-soft)}
+  .attach{width:36px; height:40px; border:none; background:none; color:var(--muted); cursor:pointer; display:grid; place-items:center}
+  .send{display:inline-flex; align-items:center; gap:7px; background:var(--blue); color:#fff; border:none;
+    border-radius:10px; padding:10px 16px; font-weight:600; cursor:pointer}
+  .send:hover{filter:brightness(1.03)} .send[disabled]{opacity:.55; cursor:default}
+  .composer .foot{text-align:center; font-size:11px; color:var(--faint); margin-top:9px}
+
+  /* Metrics */
+  .metric{border:1px solid var(--line); border-radius:var(--radius-sm); padding:12px; margin-bottom:11px;
+    display:flex; align-items:center; gap:12px}
+  .metric .mi{width:34px; height:34px; border-radius:9px; display:grid; place-items:center; flex:none}
+  .metric .lab{font-size:12px; color:var(--muted)}
+  .metric .val{font-size:22px; font-weight:700; line-height:1.1}
+  .metric .spark{margin-left:auto; width:70px; height:34px; flex:none}
+  .mi-blue{background:var(--blue-soft); color:var(--blue)}
+  .mi-green{background:var(--green-soft); color:var(--green)}
+  .mi-cyan{background:#e3f4fb; color:#0e94c4}
+  .mi-amber{background:var(--amber-soft); color:var(--amber)}
+  .mi-purple{background:var(--purple-soft); color:var(--purple)}
+  .metrics-foot{display:flex; gap:9px; background:#f7f9fd; border:1px solid var(--line-soft);
+    border-radius:var(--radius-sm); padding:11px; font-size:12px; color:var(--muted); align-items:center}
+
+  ::-webkit-scrollbar{width:9px; height:9px}
+  ::-webkit-scrollbar-thumb{background:#d3dae6; border-radius:6px}
+  .visually-hidden{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0)}
+
+  @media (max-width:1000px){
+    .cols{grid-template-columns:1fr; overflow:auto}
+    .panel{min-height:340px}
+  }
+</style>
 </head>
 <body>
-    <div class="container">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <div class="logo">Second Brain</div>
-                <div class="logo-subtitle">RAG Assistant</div>
-            </div>
+<div class="app">
 
-            <div class="upload-area">
-                <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                        <polyline points="17 8 12 3 7 8"/>
-                        <line x1="12" y1="3" x2="12" y2="15"/>
-                    </svg>
-                    Upload Document
-                </button>
-                <input type="file" id="fileInput" class="file-input" accept=".pdf,.txt,.md" multiple>
-
-                <div class="drop-zone" id="dropZone">
-                    <div class="drop-zone-text">Drop files here</div>
-                </div>
-            </div>
-
-            <div class="documents-section">
-                <div class="section-title">Documents</div>
-                <div class="document-list" id="documentList">
-                    <div class="empty-docs">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                            <polyline points="14 2 14 8 20 8"/>
-                        </svg>
-                        <p>No documents yet.<br>Upload some to get started!</p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="status-bar">
-                <div class="status-indicator" id="statusIndicator"></div>
-                <span id="statusText">Ready</span>
-            </div>
-        </aside>
-
-        <!-- Main Chat Area -->
-        <main class="main-content">
-            <div class="chat-header">
-                <div class="chat-title">Chat</div>
-                <div class="header-status">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"/>
-                        <polyline points="12 6 12 12 16 14"/>
-                    </svg>
-                    <span id="docCount">0 documents indexed</span>
-                </div>
-            </div>
-
-            <div class="chat-messages" id="chatMessages">
-                <div class="welcome-message">
-                    <div class="welcome-icon">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                        </svg>
-                    </div>
-                    <h2 class="welcome-title">Welcome to Your Second Brain</h2>
-                    <p class="welcome-subtitle">Upload your documents and ask questions. I'll help you find answers and cite sources from your knowledge base.</p>
-                </div>
-            </div>
-
-            <div class="chat-input-area">
-                <div class="chat-input-wrapper">
-                    <input type="text" class="chat-input" id="chatInput" placeholder="Ask a question about your documents..." autocomplete="off">
-                    <button class="send-btn" id="sendBtn">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <line x1="22" y1="2" x2="11" y2="13"/>
-                            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-        </main>
+  <!-- Header -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">🧠</div>
+      <div>
+        <h1>Local RAG Assistant</h1>
+        <p>Chat with your documents, locally</p>
+      </div>
     </div>
+    <div class="topright">
+      <div class="status offline" id="apiStatus">
+        <span class="dot"></span>
+        <div>
+          <div class="label" id="apiStatusLabel">Connecting…</div>
+          <div class="sub">Local model · RAG enabled</div>
+        </div>
+      </div>
+      <div class="avatar">U</div>
+    </div>
+  </header>
 
-    <script>
-        // State
-        let isLoading = false;
-        let rebuildStatus = { rebuilding: false, message: '' };
-        let statusCheckInterval = null;
+  <div class="cols">
 
-        // DOM Elements
-        const fileInput = document.getElementById('fileInput');
-        const dropZone = document.getElementById('dropZone');
-        const documentList = document.getElementById('documentList');
-        const chatMessages = document.getElementById('chatMessages');
-        const chatInput = document.getElementById('chatInput');
-        const sendBtn = document.getElementById('sendBtn');
-        const statusIndicator = document.getElementById('statusIndicator');
-        const statusText = document.getElementById('statusText');
-        const docCountEl = document.getElementById('docCount');
+    <!-- Documents -->
+    <section class="panel">
+      <div class="panel-head">
+        <div class="title"><span class="ic">📄</span> Documents</div>
+        <span class="badge" id="docCount">0 files</span>
+      </div>
+      <div class="panel-body">
+        <div class="drop" id="drop" tabindex="0" role="button" aria-label="Upload a document">
+          <div class="cloud">☁️⬆️</div>
+          <div class="big">Drop PDF, TXT, or MD here</div>
+          <div class="small">or click to choose a file</div>
+          <div class="pills"><span class="pill">.pdf</span><span class="pill">.txt</span><span class="pill">.md</span></div>
+        </div>
+        <input type="file" id="fileInput" accept=".pdf,.txt,.md" class="visually-hidden">
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
-            loadDocuments();
-            startStatusPolling();
+        <div id="indexingWrap"></div>
+        <div id="uploadError"></div>
+
+        <div class="subhead">
+          <h3>Your Documents</h3>
+          <select class="sortsel" id="sortSel">
+            <option value="new">Newest first</option>
+            <option value="old">Oldest first</option>
+            <option value="name">Name A–Z</option>
+          </select>
+        </div>
+        <div id="docList"><div class="empty">Loading…</div></div>
+
+        <div class="infobox">
+          <span>🗂️</span>
+          <span>Upload files to make them available for retrieval. Supported formats: .pdf, .txt, .md</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Chat -->
+    <section class="panel">
+      <div class="panel-head">
+        <div class="title"><span class="ic">💬</span> Chat</div>
+        <button class="linkbtn" id="clearChat">🗑️ Clear chat</button>
+      </div>
+      <div class="panel-body chat-body" id="chatBody">
+        <div class="chat-hint" id="chatHint">
+          <div class="t">✦ Ask a question about your documents</div>
+          <div class="s">I'll search your documents and give you grounded answers.</div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="row">
+          <button class="attach" id="attachBtn" title="Attach a document">📎</button>
+          <input type="text" id="chatInput" placeholder="Ask a question…" autocomplete="off">
+          <button class="send" id="sendBtn">➤ Send</button>
+        </div>
+        <div class="foot">Answers are generated from your documents. They may be incomplete or incorrect.</div>
+      </div>
+    </section>
+
+    <!-- Metrics -->
+    <section class="panel">
+      <div class="panel-head">
+        <div class="title"><span class="ic">📊</span> Metrics</div>
+        <button class="linkbtn" id="metricsRefresh">🔄 <span id="metricsAge">—</span></button>
+      </div>
+      <div class="panel-body">
+        <div class="metric">
+          <div class="mi mi-blue">💬</div>
+          <div><div class="lab">Queries</div><div class="val" id="mQueries">—</div></div>
+          <svg class="spark" id="sQueries" viewBox="0 0 70 34" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="metric">
+          <div class="mi mi-green">✓</div>
+          <div><div class="lab">Grounded rate</div><div class="val" id="mGrounded">—</div></div>
+          <svg class="spark" id="sGrounded" viewBox="0 0 70 34" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="metric">
+          <div class="mi mi-cyan">🗄️</div>
+          <div><div class="lab">Cache hit rate</div><div class="val" id="mCache">—</div></div>
+          <svg class="spark" id="sCache" viewBox="0 0 70 34" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="metric">
+          <div class="mi mi-amber">⚠️</div>
+          <div><div class="lab">Refusal rate</div><div class="val" id="mRefusal">—</div></div>
+          <svg class="spark" id="sRefusal" viewBox="0 0 70 34" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="metric">
+          <div class="mi mi-purple">⏱️</div>
+          <div><div class="lab">Avg latency</div><div class="val" id="mLatency">—</div></div>
+          <svg class="spark" id="sLatency" viewBox="0 0 70 34" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="metrics-foot">
+          <span>🔁</span>
+          <div>
+            <div>Refreshes every 5 seconds</div>
+            <div style="font-size:11px">Showing data from the local RAG API</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+"use strict";
+// Same-origin API. No hardcoded host/port; works wherever the backend serves this file.
+const API = "";
+const POLL_MS = 900;         // job-status poll interval
+const METRICS_MS = 5000;     // metrics refresh interval
+const SPARK_MAX = 24;        // points kept per sparkline (in memory only)
+
+// ---- tiny DOM helpers ----
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, html) => { const n = document.createElement(tag); if (cls) n.className = cls; if (html != null) n.innerHTML = html; return n; };
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function fmtBytes(b){
+  if (b == null) return "";
+  if (b < 1024) return b + " B";
+  if (b < 1024*1024) return (b/1024).toFixed(0) + " KB";
+  return (b/1024/1024).toFixed(1) + " MB";
+}
+function fmtDate(iso){
+  const d = new Date(iso); if (isNaN(d)) return iso || "";
+  const date = d.toLocaleDateString("en-CA"); // YYYY-MM-DD
+  const time = d.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"});
+  return date + " · " + time;
+}
+function nowTime(){ return new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}); }
+function extOf(name){ const m = /\.([a-z0-9]+)$/i.exec(name || ""); return m ? m[1].toLowerCase() : ""; }
+function fileIcon(name){
+  const e = extOf(name);
+  const cls = e === "pdf" ? "fi-pdf" : e === "md" ? "fi-md" : "fi-txt";
+  return `<div class="fileicon ${cls}">${e.toUpperCase().slice(0,3) || "?"}</div>`;
+}
+
+// ---- API status ----
+function setStatus(online){
+  const s = $("apiStatus");
+  s.classList.toggle("online", online);
+  s.classList.toggle("offline", !online);
+  $("apiStatusLabel").textContent = online ? "API Online" : "API Offline";
+}
+
+async function api(path, opts){
+  const res = await fetch(API + path, opts);
+  if (!res.ok){
+    let detail = res.status + " " + res.statusText;
+    try { const j = await res.json(); if (j && j.detail) detail = j.detail; } catch(e){}
+    throw new Error(detail);
+  }
+  setStatus(true);
+  return res.status === 204 ? null : res.json();
+}
+
+// =====================================================================
+//  DOCUMENTS
+// =====================================================================
+let docs = [];
+
+async function loadDocuments(){
+  try{
+    docs = await api("/api/documents");
+    renderDocuments();
+  }catch(e){
+    setStatus(false);
+    $("docList").innerHTML = `<div class="empty">Couldn't load documents — ${esc(e.message)}</div>`;
+  }
+}
+
+function sortedDocs(){
+  const mode = $("sortSel").value;
+  const arr = docs.slice();
+  if (mode === "name") arr.sort((a,b)=> a.filename.localeCompare(b.filename));
+  else arr.sort((a,b)=> (mode === "old" ? 1 : -1) * (new Date(b.date) - new Date(a.date)));
+  return arr;
+}
+
+function renderDocuments(){
+  $("docCount").textContent = docs.length + (docs.length === 1 ? " file" : " files");
+  const list = $("docList");
+  list.innerHTML = "";
+  if (!docs.length){
+    list.appendChild(el("div","empty","No documents yet — upload one above to get started."));
+    return;
+  }
+  for (const d of sortedDocs()){
+    const row = el("div","doc");
+    row.innerHTML =
+      fileIcon(d.filename) +
+      `<div class="meta"><div class="n" title="${esc(d.filename)}">${esc(d.filename)}</div>
+       <div class="s">${fmtBytes(d.size)} · ${esc(fmtDate(d.date))}</div></div>`;
+    const btn = el("button","del","🗑️ Delete");
+    btn.onclick = () => deleteDoc(d.filename, btn);
+    row.appendChild(btn);
+    list.appendChild(row);
+  }
+}
+
+// ---- upload ----
+function showUploadError(msg){
+  const wrap = $("uploadError");
+  wrap.innerHTML = "";
+  if (!msg) return;
+  const b = el("div","banner", `<span>⚠️</span><span>${esc(msg)}</span>`);
+  const x = el("button", null, "✕"); x.onclick = () => wrap.innerHTML = "";
+  b.appendChild(x);
+  wrap.appendChild(b);
+}
+
+function renderIndexing(filename, state){
+  const wrap = $("indexingWrap");
+  if (!state){ wrap.innerHTML = ""; return; }
+  const {message, done, total, failed} = state;
+  const pct = total > 0 ? Math.round(done/total*100) : (failed ? 100 : 8);
+  wrap.innerHTML =
+    `<div class="indexing">
+       <div class="row">${fileIcon(filename)}
+         <div class="name">${esc(filename)}</div>
+         <div class="spin">${failed ? "⚠️" : "⟳"}</div>
+       </div>
+       <div class="desc">${esc(message || (failed ? "Indexing failed" : "Indexing file… extracting and chunking content"))}</div>
+       <div class="pbar"><i style="width:${pct}%${failed ? ";background:#dc2626" : ""}"></i></div>
+       <div class="pcount">${total ? (done + " / " + total) : ""}</div>
+     </div>`;
+}
+
+async function uploadFile(file){
+  showUploadError("");
+  const allowed = ["pdf","txt","md"];
+  if (!allowed.includes(extOf(file.name))){
+    showUploadError(`Unsupported file type. Allowed: .pdf, .txt, .md`);
+    return;
+  }
+  renderIndexing(file.name, {message:"Uploading…", done:0, total:0});
+  let task_id;
+  try{
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await api("/api/upload", {method:"POST", body:fd});
+    task_id = r.task_id;
+  }catch(e){
+    setStatus(false);
+    renderIndexing(null);
+    showUploadError("Upload failed: " + e.message + ". Please try again.");
+    return;
+  }
+  await pollJob(task_id, file.name);
+  await loadDocuments();
+}
+
+// poll an indexing/rebuild job until done; drives the progress bar
+async function pollJob(task_id, filename){
+  return new Promise((resolve) => {
+    const tick = async () => {
+      try{
+        const s = await api("/api/index-status/" + encodeURIComponent(task_id));
+        const failed = s.state === "FAILURE";
+        renderIndexing(filename, {
+          message: s.message, done: (s.progress && s.progress.done) || 0,
+          total: (s.progress && s.progress.total) || 0, failed
         });
-
-        // Status polling
-        function startStatusPolling() {
-            checkRebuildStatus();
-            statusCheckInterval = setInterval(checkRebuildStatus, 2000);
+        if (s.done){
+          if (failed){ showUploadError(s.message || "Indexing failed."); }
+          setTimeout(() => renderIndexing(null), failed ? 4000 : 900);
+          resolve(); return;
         }
+      }catch(e){
+        setStatus(false);
+        renderIndexing(filename, {message:"Lost contact with the worker — " + e.message, failed:true});
+        resolve(); return;
+      }
+      setTimeout(tick, POLL_MS);
+    };
+    tick();
+  });
+}
 
-        async function checkRebuildStatus() {
-            try {
-                const res = await fetch('/api/rebuild-status');
-                const status = await res.json();
-                rebuildStatus = status;
+async function deleteDoc(filename, btn){
+  if (btn){ btn.disabled = true; btn.textContent = "Deleting…"; }
+  try{
+    const r = await api("/api/documents/" + encodeURIComponent(filename), {method:"DELETE"});
+    if (r && r.task_id) await pollJob(r.task_id, filename);
+  }catch(e){
+    setStatus(false);
+    showUploadError("Delete failed: " + e.message);
+  }
+  await loadDocuments();
+}
 
-                if (status.rebuilding) {
-                    statusIndicator.classList.add('rebuilding');
-                    statusText.textContent = 'Index rebuilding...';
-                } else {
-                    statusIndicator.classList.remove('rebuilding');
-                    statusText.textContent = status.message || 'Ready';
-                    if (!status.rebuilding && status.message && !status.message.includes('Error')) {
-                        loadDocuments();
-                    }
-                }
-            } catch (e) {
-                console.error('Status check failed:', e);
-            }
-        }
+// dropzone wiring
+const drop = $("drop"), fileInput = $("fileInput");
+drop.onclick = () => fileInput.click();
+drop.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") fileInput.click(); };
+$("attachBtn").onclick = () => fileInput.click();
+fileInput.onchange = () => { if (fileInput.files[0]) uploadFile(fileInput.files[0]); fileInput.value = ""; };
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("drag"); }));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("drag"); }));
+drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) uploadFile(f); });
+$("sortSel").onchange = renderDocuments;
 
-        // File Upload
-        fileInput.addEventListener('change', handleFileSelect);
+// =====================================================================
+//  CHAT
+// =====================================================================
+const chatBody = $("chatBody"), chatInput = $("chatInput"), sendBtn = $("sendBtn");
+let hasMessages = false;
 
-        // Drag and Drop
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropZone.classList.add('drag-over');
-        });
+function ensureHintHidden(){
+  if (!hasMessages){ const h = $("chatHint"); if (h) h.remove(); hasMessages = true; }
+}
+function scrollChat(){ chatBody.scrollTop = chatBody.scrollHeight; }
 
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.classList.remove('drag-over');
-        });
+function addUser(text){
+  ensureHintHidden();
+  const m = el("div","msg user");
+  m.innerHTML = `<div class="bubble">${esc(text)}<div class="time">${nowTime()}</div></div>`;
+  chatBody.appendChild(m); scrollChat();
+}
+function addThinking(){
+  ensureHintHidden();
+  const m = el("div","msg");
+  m.innerHTML = `<div class="bot">🤖</div>
+    <div class="bubble"><div class="thinking">Thinking <span class="dots"><i></i><i></i><i></i></span></div></div>`;
+  chatBody.appendChild(m); scrollChat();
+  return m;
+}
+function sourceCard(s){
+  const scorePct = (typeof s.score === "number") ? (s.score <= 1 ? Math.round(s.score*100)+"%" : s.score.toFixed(2)) : "";
+  return `<div class="srccard">
+     <div class="top">${fileIcon(s.source)}<span class="lbl" title="${esc(s.source)}">${esc(s.source)}</span>
+       ${scorePct ? `<span class="score">${scorePct}</span>` : ""}</div>
+     <div class="snip">${esc(s.text)}</div>
+   </div>`;
+}
+function addAnswer(res){
+  const m = el("div","msg");
+  if (res.grounded === false){
+    m.innerHTML = `<div class="bot">🤖</div>
+      <div class="refusal" style="flex:1">
+        <div class="head">⚠️ Not found in your documents</div>
+        <div class="body">${esc(res.answer)}</div>
+        <div class="time">${nowTime()}</div>
+      </div>`;
+  } else {
+    let src = "";
+    if (res.sources && res.sources.length){
+      src = `<details class="sources"><summary><span class="chev">▸</span> Sources (${res.sources.length})</summary>
+        <div class="srcgrid">${res.sources.map(sourceCard).join("")}</div></details>`;
+    }
+    m.innerHTML = `<div class="bot">🤖</div>
+      <div class="bubble" style="flex:1">${esc(res.answer)}${src}<div class="time">${nowTime()}</div></div>`;
+  }
+  chatBody.appendChild(m); scrollChat();
+}
+function addChatError(msg){
+  const m = el("div","msg");
+  m.innerHTML = `<div class="bot">🤖</div>
+    <div class="refusal" style="flex:1"><div class="head">⚠️ Something went wrong</div>
+    <div class="body">${esc(msg)}</div></div>`;
+  chatBody.appendChild(m); scrollChat();
+}
 
-        dropZone.addEventListener('drop', async (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('drag-over');
+async function sendQuestion(){
+  const q = chatInput.value.trim();
+  if (!q) return;
+  chatInput.value = "";
+  sendBtn.disabled = true;
+  addUser(q);
+  const thinking = addThinking();
+  try{
+    const res = await api("/api/chat", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({question:q})
+    });
+    thinking.remove();
+    addAnswer(res);
+    loadMetrics(); // refresh metrics right after a query
+  }catch(e){
+    setStatus(false);
+    thinking.remove();
+    addChatError(e.message);
+  }finally{
+    sendBtn.disabled = false;
+    chatInput.focus();
+  }
+}
+sendBtn.onclick = sendQuestion;
+chatInput.addEventListener("keydown", e => { if (e.key === "Enter") sendQuestion(); });
+$("clearChat").onclick = () => {
+  chatBody.innerHTML = "";
+  hasMessages = false;
+  const hint = el("div","chat-hint");
+  hint.id = "chatHint";
+  hint.innerHTML = `<div class="t">✦ Ask a question about your documents</div>
+    <div class="s">I'll search your documents and give you grounded answers.</div>`;
+  chatBody.appendChild(hint);
+};
 
-            const files = Array.from(e.dataTransfer.files);
-            if (files.length > 0) {
-                await uploadFiles(files);
-            }
-        });
+// =====================================================================
+//  METRICS  (+ in-memory sparkline history, reset on reload)
+// =====================================================================
+const history = { queries:[], grounded:[], cache:[], refusal:[], latency:[] };
+let lastMetricsAt = 0;
 
-        async function handleFileSelect(e) {
-            const files = Array.from(e.target.files);
-            if (files.length > 0) {
-                await uploadFiles(files);
-            }
-            fileInput.value = '';
-        }
+function pushHist(arr, v){ arr.push(v); if (arr.length > SPARK_MAX) arr.shift(); }
 
-        async function uploadFiles(files) {
-            for (const file of files) {
-                const formData = new FormData();
-                formData.append('file', file);
+function drawSpark(svgId, data, color){
+  const svg = $(svgId);
+  svg.innerHTML = "";
+  if (data.length < 2){ return; }
+  const W = 70, H = 34, pad = 3;
+  const min = Math.min(...data), max = Math.max(...data);
+  const span = (max - min) || 1;
+  const step = (W - pad*2) / (data.length - 1);
+  const pts = data.map((v,i) => {
+    const x = pad + i*step;
+    const y = H - pad - ((v - min)/span) * (H - pad*2);
+    return x.toFixed(1) + "," + y.toFixed(1);
+  }).join(" ");
+  const ns = "http://www.w3.org/2000/svg";
+  const line = document.createElementNS(ns, "polyline");
+  line.setAttribute("points", pts);
+  line.setAttribute("fill", "none");
+  line.setAttribute("stroke", color);
+  line.setAttribute("stroke-width", "2");
+  line.setAttribute("stroke-linejoin", "round");
+  line.setAttribute("stroke-linecap", "round");
+  svg.appendChild(line);
+}
 
-                try {
-                    const res = await fetch('/api/upload', {
-                        method: 'POST',
-                        body: formData
-                    });
+function setMetricsAge(){
+  if (!lastMetricsAt){ $("metricsAge").textContent = "—"; return; }
+  const secs = Math.round((Date.now() - lastMetricsAt)/1000);
+  $("metricsAge").textContent = secs < 3 ? "Updated just now" : `Updated ${secs}s ago`;
+}
 
-                    if (!res.ok) {
-                        const err = await res.json();
-                        alert(`Upload failed: ${err.detail}`);
-                        return;
-                    }
-                } catch (e) {
-                    alert(`Upload failed: ${e.message}`);
-                    return;
-                }
-            }
+async function loadMetrics(){
+  try{
+    const m = await api("/api/metrics");
+    lastMetricsAt = Date.now();
+    const q = m.queries || 0;
+    const gr = m.grounded_rate || 0, ca = m.cache_hit_rate || 0, rf = m.refusal_rate || 0;
+    const lat = (m.latency_ms && m.latency_ms.avg) || 0;
 
-            statusText.textContent = 'Uploading...';
-        }
+    $("mQueries").textContent = q;
+    $("mGrounded").textContent = Math.round(gr*100) + "%";
+    $("mCache").textContent = Math.round(ca*100) + "%";
+    $("mRefusal").textContent = Math.round(rf*100) + "%";
+    $("mLatency").textContent = Math.round(lat) + " ms";
 
-        // Load Documents
-        async function loadDocuments() {
-            try {
-                const res = await fetch('/api/documents');
-                const docs = await res.json();
-                renderDocuments(docs);
-                docCountEl.textContent = `${docs.length} document${docs.length !== 1 ? 's' : ''} indexed`;
-            } catch (e) {
-                console.error('Failed to load documents:', e);
-            }
-        }
+    pushHist(history.queries, q);   drawSpark("sQueries",  history.queries,  "#16a34a");
+    pushHist(history.grounded, gr); drawSpark("sGrounded", history.grounded, "#16a34a");
+    pushHist(history.cache, ca);    drawSpark("sCache",    history.cache,    "#0e94c4");
+    pushHist(history.refusal, rf);  drawSpark("sRefusal",  history.refusal,  "#dc2626");
+    pushHist(history.latency, lat); drawSpark("sLatency",  history.latency,  "#7c3aed");
+    setMetricsAge();
+  }catch(e){
+    setStatus(false);
+    $("metricsAge").textContent = "offline";
+  }
+}
+$("metricsRefresh").onclick = loadMetrics;
 
-        function renderDocuments(docs) {
-            if (docs.length === 0) {
-                documentList.innerHTML = `
-                    <div class="empty-docs">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                            <polyline points="14 2 14 8 20 8"/>
-                        </svg>
-                        <p>No documents yet.<br>Upload some to get started!</p>
-                    </div>
-                `;
-                return;
-            }
-
-            documentList.innerHTML = docs.map(doc => {
-                const size = formatFileSize(doc.size);
-                const date = new Date(doc.date).toLocaleDateString();
-                const ext = doc.filename.split('.').pop().toLowerCase();
-                const iconColor = ext === 'pdf' ? '#ef4444' : ext === 'md' ? '#10b981' : '#3b82f6';
-
-                return `
-                    <div class="document-item" data-filename="${doc.filename}">
-                        <div class="doc-icon" style="background: ${iconColor}">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                <polyline points="14 2 14 8 20 8"/>
-                            </svg>
-                        </div>
-                        <div class="doc-info">
-                            <div class="doc-name" title="${doc.filename}">${doc.filename}</div>
-                            <div class="doc-meta">${size} • ${date}</div>
-                        </div>
-                        <button class="delete-btn" onclick="deleteDocument('${doc.filename}')" title="Delete">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="3 6 5 6 21 6"/>
-                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                            </svg>
-                        </button>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        function formatFileSize(bytes) {
-            if (bytes < 1024) return bytes + ' B';
-            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-        }
-
-        // Delete Document
-        async function deleteDocument(filename) {
-            if (!confirm(`Delete "${filename}"?`)) return;
-
-            try {
-                const res = await fetch(`/api/documents/${encodeURIComponent(filename)}`, {
-                    method: 'DELETE'
-                });
-
-                if (!res.ok) {
-                    const err = await res.json();
-                    alert(`Delete failed: ${err.detail}`);
-                    return;
-                }
-
-                statusText.textContent = 'Deleting...';
-            } catch (e) {
-                alert(`Delete failed: ${e.message}`);
-            }
-        }
-
-        // Chat
-        async function sendMessage() {
-            const question = chatInput.value.trim();
-            if (!question || isLoading) return;
-
-            // Clear welcome message if present
-            const welcomeMsg = chatMessages.querySelector('.welcome-message');
-            if (welcomeMsg) welcomeMsg.remove();
-
-            // Add user message
-            addMessage('user', question);
-            chatInput.value = '';
-            chatInput.disabled = true;
-            sendBtn.disabled = true;
-            isLoading = true;
-
-            // Add loading message
-            const loadingId = addLoadingMessage();
-
-            try {
-                const res = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question })
-                });
-
-                if (!res.ok) {
-                    const err = await res.json();
-                    throw new Error(err.detail || 'Failed to get response');
-                }
-
-                const data = await res.json();
-
-                // Remove loading message
-                document.getElementById(loadingId)?.remove();
-
-                // Add AI response
-                addMessage('ai', data.answer, data.sources, data.grounded);
-
-            } catch (e) {
-                // Remove loading message
-                document.getElementById(loadingId)?.remove();
-
-                // Show error
-                addMessage('ai', `Error: ${e.message}`, [], false);
-            } finally {
-                chatInput.disabled = false;
-                sendBtn.disabled = false;
-                isLoading = false;
-                chatInput.focus();
-            }
-        }
-
-        function addMessage(type, text, sources = [], grounded = true) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${type}`;
-
-            const label = type === 'user' ? 'You' : 'AI';
-
-            let sourcesHtml = '';
-            if (type === 'ai' && sources.length > 0) {
-                sourcesHtml = `
-                    <div class="sources">
-                        <div class="sources-title">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                <polyline points="14 2 14 8 20 8"/>
-                            </svg>
-                            Sources
-                        </div>
-                        ${sources.map(s => `
-                            <div class="source-item">
-                                <span class="source-score">[${s.score.toFixed(2)}]</span> ${s.source}
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
-            }
-
-            messageDiv.innerHTML = `
-                <div class="message-label">${label}</div>
-                <div class="message-bubble">${escapeHtml(text)}</div>
-                ${sourcesHtml}
-            `;
-
-            chatMessages.appendChild(messageDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-
-            return messageDiv;
-        }
-
-        function addLoadingMessage() {
-            const id = 'loading-' + Date.now();
-            const loadingDiv = document.createElement('div');
-            loadingDiv.className = 'loading-message';
-            loadingDiv.id = id;
-            loadingDiv.innerHTML = `
-                <div class="spinner"></div>
-                <div class="loading-text">Thinking...</div>
-            `;
-            chatMessages.appendChild(loadingDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-            return id;
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML.replace(/\n/g, '<br>');
-        }
-
-        // Event Listeners
-        sendBtn.addEventListener('click', sendMessage);
-
-        chatInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
-    </script>
+// =====================================================================
+//  BOOT
+// =====================================================================
+loadDocuments();
+loadMetrics();
+setInterval(loadMetrics, METRICS_MS);
+setInterval(setMetricsAge, 1000);
+</script>
 </body>
 </html>
