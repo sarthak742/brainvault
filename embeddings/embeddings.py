@@ -3,18 +3,28 @@ from typing import List, Optional
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
+from config import get_embedding_model, get_embedding_batch_size
+
 logger = logging.getLogger(__name__)
 
 class Embedder:
     def __init__(
         self,
-        model_name: str = "all-MiniLM-L6-v2",
-        batch_size: int = 64,
+        model_name: Optional[str] = None,
+        batch_size: Optional[int] = None,
         device: Optional[str] = None,
     ) -> None:
         """
         Loads embedding model into memory.
+
+        model_name and batch_size default to the values in config.yaml (the
+        single source of truth) when not explicitly provided.
         """
+        # Config is authoritative; explicit args still override it.
+        if model_name is None:
+            model_name = get_embedding_model()
+        if batch_size is None:
+            batch_size = get_embedding_batch_size()
         try:
             # We do NOT log "Loading..." here to keep library output clean.
             self.model = SentenceTransformer(model_name, device=device)

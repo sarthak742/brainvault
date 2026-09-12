@@ -6,5 +6,7 @@ vectorstore_data/
 data/raw_docs/
 *.faiss
 vectorstore_data/*.json
-
 eval/results.json
+.env.txt
+.env.*
+!.env.example
