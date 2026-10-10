@@ -12,7 +12,7 @@ class FakeRetriever:
         self._batches = list(result_batches)
         self.queries = []
 
-    def retrieve(self, query, k=5):
+    def retrieve(self, query, k=5, user_id=None):
         self.queries.append(query)
         if len(self._batches) == 1:
             return self._batches[0]
@@ -30,7 +30,7 @@ class ScriptedClient:
 
 
 def chunk(text, score=0.9):
-    return (score, {"text": text, "source": "doc.pdf"})
+    return (score, {"text": text, "source": "doc.pdf", "_dense_score": 0.4})
 
 
 def test_baseline_no_reflection_matches_old_behaviour():

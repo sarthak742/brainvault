@@ -35,7 +35,7 @@ def test_retriever_basic_dense_search(mock_embedder, mock_store):
     
     # Check wiring
     mock_embedder.embed_query.assert_called_once_with("hello world")
-    mock_store.search.assert_called_once_with([0.1, 0.2], k=3)
+    mock_store.search.assert_called_once_with([0.1, 0.2], k=3, user_id=None)
     
     # Check results
     assert len(results) == 1
@@ -70,7 +70,7 @@ def test_retriever_routes_to_hybrid_when_configured(mock_embedder, mock_store, m
         
         # 3. Verify Routing
         # Should call hybrid
-        mock_hybrid_instance.retrieve.assert_called_once_with("test query", k=10)
+        mock_hybrid_instance.retrieve.assert_called_once_with("test query", k=10, user_id=None)
         
         # Should NOT call dense components directly (Hybrid manages that)
         mock_embedder.embed_query.assert_not_called()

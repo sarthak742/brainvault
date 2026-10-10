@@ -24,7 +24,7 @@ def engine(mock_retriever, mock_client):
 
 @pytest.fixture
 def sample_chunk():
-    return {"text": "This is a test chunk.", "source": "doc1", "start_page": 1}
+    return {"text": "This is a test chunk.", "source": "doc1", "start_page": 1, "_dense_score": 0.6}
 
 # --- Standard Tests ---
 
@@ -44,8 +44,9 @@ def test_generate_answer_success(engine, mock_retriever, mock_client, sample_chu
 
 def test_generate_answer_refusal_low_score(engine, mock_retriever, mock_client, sample_chunk):
     """Test that weak evidence triggers fail-fast (no LLM call)."""
-    # Setup: Chunk score (0.1) < Default Threshold (0.25)
-    mock_retriever.retrieve.return_value = [(0.1, sample_chunk)]
+    # Setup: dense score is 0.3 < 0.32 (grounding threshold), so it must refuse
+    chunk = {"text": "AAAA " * 4, "source": "d1", "_dense_score": 0.3}
+    mock_retriever.retrieve.return_value = [(chunk["_dense_score"], chunk)]
     
     result = engine.generate_answer("test query", score_threshold=0.25)
     
@@ -67,8 +68,8 @@ def test_generate_answer_empty_retrieval(engine, mock_retriever, mock_client):
 
 def test_context_truncation(engine, mock_retriever, mock_client):
     """Test that context respects max_context_chars and 'at least one chunk' rule."""
-    chunk1 = {"text": "AAAA " * 4, "source": "d1"} 
-    chunk2 = {"text": "BBBB " * 4, "source": "d2"} 
+    chunk1 = {"text": "AAAA " * 4, "source": "d1", "_dense_score": 0.42}
+    chunk2 = {"text": "BBBB " * 4, "source": "d2", "_dense_score": 0.2}
     
     mock_retriever.retrieve.return_value = [(0.9, chunk1), (0.8, chunk2)]
     
