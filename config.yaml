@@ -88,3 +88,8 @@ reflection_max_retrieval_attempts: 2
 
 # Regenerate once if the critic judges the first answer unsupported.
 reflection_allow_regeneration: true
+
+#its a switch decides which folder the server uses
+#if on serve ignores user_id and uses default(shared guest acc for all)
+#if off each user_id gets its own folder
+single_user_mode: true

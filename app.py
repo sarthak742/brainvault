@@ -30,6 +30,7 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from indexing import DATA_DIR, INDEX_PATH, META_PATH, build_components
+from config import is_single_user_mode
 from tasks import celery_app, index_document_task, full_rebuild_task
 import observability
 from cache import SemanticCache
@@ -83,6 +84,12 @@ def format_citation(chunk: dict) -> str:
     return f"{source} (Pages {start}-{end})"
 
 
+def is_path_safe(path:Path,folder:Path)->bool:
+    real_path=path.resolve()
+    real_folder=folder.resolve()
+    return real_path.parent==real_folder
+
+
 def get_engine():
     """Return the engine, reloading from disk when the worker changed the index.
     When the index changes, the semantic cache is cleared so we never serve an
@@ -113,13 +120,19 @@ async def serve_frontend():
 @app.post("/api/upload")
 async def upload_document(file: UploadFile = File(...), user_id: str = Form("default")):
     """Save the file under the user's folder and QUEUE indexing for that user."""
+    if is_single_user_mode():
+        user_id = "default"
     allowed = {".pdf", ".txt", ".md"}
     ext = Path(file.filename).suffix.lower()
     if ext not in allowed:
         raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {allowed}")
     user_dir = DATA_DIR / user_id
+    if not is_path_safe(user_dir, DATA_DIR):
+        raise HTTPException(status_code=400, detail="Invalid user_id")
     user_dir.mkdir(parents=True, exist_ok=True)
     file_path = user_dir / file.filename
+    if not is_path_safe(file_path, user_dir):
+        raise HTTPException(status_code=400, detail="Invalid filename")
     try:
         content = await file.read()
         with open(file_path, "wb") as f:
@@ -155,8 +168,12 @@ async def metrics():
 
 @app.get("/api/documents", response_model=List[DocumentInfo])
 async def list_documents(user_id: str = "default"):
+    if is_single_user_mode():
+        user_id = "default"
     documents = []
     user_dir = DATA_DIR / user_id
+    if not is_path_safe(user_dir, DATA_DIR):
+        raise HTTPException(status_code=400, detail="Invalid user_id")
     if not user_dir.exists():
         return documents
     for file_path in user_dir.iterdir():
@@ -171,7 +188,14 @@ async def list_documents(user_id: str = "default"):
 
 @app.delete("/api/documents/{filename}")
 async def delete_document(filename: str, user_id: str = "default"):
-    file_path = DATA_DIR / user_id / filename
+    if is_single_user_mode():
+        user_id = "default"
+    user_dir = DATA_DIR / user_id
+    if not is_path_safe(user_dir, DATA_DIR):
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    file_path = user_dir / filename
+    if not is_path_safe(file_path, user_dir):
+        raise HTTPException(status_code=400, detail="Invalid filename")
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"Document '{filename}' not found")
     try:
@@ -183,6 +207,11 @@ async def delete_document(filename: str, user_id: str = "default"):
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
+    if is_single_user_mode():
+        request.user_id = "default"
+    user_dir = DATA_DIR / request.user_id
+    if not is_path_safe(user_dir, DATA_DIR):
+        raise HTTPException(status_code=400, detail="Invalid user_id")
     engine = get_engine()
     if engine is None:
         raise HTTPException(status_code=400, detail="RAG system not initialized. Please upload documents first.")

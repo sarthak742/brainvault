@@ -244,3 +244,8 @@ def get_reflection_max_retrieval_attempts() -> int:
 def is_reflection_allow_regeneration() -> bool:
     """Whether to regenerate once when the critic flags an unsupported answer."""
     return bool(get('reflection_allow_regeneration', True))
+
+
+def is_single_user_mode() -> bool:
+    """Master switch for guest space or separate user_id ."""
+    return bool(get('single_user_mode', True))

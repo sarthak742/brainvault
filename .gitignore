@@ -11,3 +11,4 @@ eval/results.json
 .env.*
 !.env.example
 *.log
+.pytest_tmp/
